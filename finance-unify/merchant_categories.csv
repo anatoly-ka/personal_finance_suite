@@ -310,3 +310,6 @@ BKG\*(?:BOOKING|HOTEL),לינה,user
 BOOKING\.COM,לינה,user
 "PAYPAL\s+\*UBER",תחבורה ציבורית,user
 "UBER\s+(?:\*?(?:TRIP|ONE\s+MEMBERSHIP)|B\.V\.)",תחבורה ציבורית,user
+^ZETTLE,חופשות וטיולים - שונות,user
+^BG$,חופשות וטיולים - שונות,user
+^ערב$,עושים קניות - שונות,user
