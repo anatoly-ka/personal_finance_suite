@@ -12,4 +12,5 @@ __all__ = [
     "corrections",
     "merchants",
     "topics",
+    "refunds",
 ]

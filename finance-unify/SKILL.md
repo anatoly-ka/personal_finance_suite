@@ -48,10 +48,11 @@ python scripts/unify.py --project <PROJECT_DIR> --set "C3069-000123:category=×ž×
 
 ## After running
 Report the summary (rows, replaced/unmatched CC charges, annihilated transfers,
-merchant categories set, flags). If rows are flagged (`unmatched_category`,
-`no_fx_rate`, `unmatched_cc`, `assumed_category`, `assumed_fx_rate`, etc.),
-summarize them from `data/ledger.flags.csv` and offer to fix specific rows via
-`--set`.
+merchant categories set, refunds bound, flags). If rows are flagged
+(`unmatched_category`, `no_fx_rate`, `unmatched_cc`, `assumed_category`,
+`assumed_fx_rate`, `assumed_refund`, `unmatched_refund`, etc.), summarize them
+from `data/ledger.flags.csv` (which now also has an `explanation` column) and
+offer to fix specific rows via `--set`.
 
 If the summary prints a `[note] ... not in the shared merchant map`, **offer to
 promote** those corrections: re-run with `--promote-corrections` so the
@@ -65,8 +66,13 @@ the promotion survives the next deploy.)
 - On first run it writes an editable `<project>/category_map.yaml` (full
   MyFinanda taxonomy, identity-mapped) for later per-project customization.
 - A shared `merchant_categories.csv` (in the skill folder, not per-project)
-  auto-categorizes rows MyFinanda left unclassified; project corrections can be
-  promoted into it with `--promote-corrections`. See [README.md](README.md).
+  auto-categorizes every matching row - overriding MyFinanda's own category,
+  not just filling a blank one. The first matching row in the file wins, so
+  order matters. Project corrections can be promoted into it with
+  `--promote-corrections`. See [README.md](README.md).
+- Each `refund` row is matched to the expense it reverses (bidirectional
+  `reference` + an `explanation` note); see "Refund binding" in
+  [README.md](README.md).
 - Uses the Python standard library only - no packages to install. (`openpyxl`
   for the optional `--xlsx` mirror is used only if already present.)
 - Skill 2 (topic extraction) is implemented - see `finance-topic`. Skill 3

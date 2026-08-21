@@ -30,12 +30,17 @@ OUTPUT_COLUMNS = [
     "reference",
     "link_group",
     "flags",
+    "explanation",
 ]
 
 # Internal-only keys kept on each record for processing but not exported:
 #   billing_month, billing_currency, inst_id, billing_serial, orig_row, source_key
 # Note: category_group is intentionally NOT stored; it is reconstructed from
 # `category` in Skill 3 via category_map.yaml.
+# `explanation` is a free-text note for whatever the skill assumed/concluded
+# about a row (currently: refund-binding notes from finance_core.refunds;
+# empty otherwise). `reference` doubles as the cross-link id for a bound
+# refund<->expense pair once finance_core.refunds has run.
 _TYPE_PREFIX = {"bank": "B", "fx": "F", "credit-card": "C"}
 
 
@@ -118,6 +123,7 @@ def build_record(
         "reference": translated.get("reference", ""),
         "link_group": "",
         "flags": [],
+        "explanation": "",
         # internal
         "billing_month": translated.get("billing_month", ""),
         "billing_currency": translated.get("billing_currency", ""),

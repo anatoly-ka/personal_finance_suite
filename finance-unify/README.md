@@ -64,8 +64,9 @@ python ~/.cursor/skills/finance-unify/scripts/unify.py --project ~/Projects/home
   and +X into account B within a couple of days). See "Reconciliation algorithm".
 - Converts foreign-currency bank rows to ILS using rates derived from the file's
   own conversion transactions (median within +/-1 month, else flagged).
-- Auto-categorizes rows MyFinanda left unclassified using a shared
-  merchant->category map (`merchant_categories.csv`); see "Merchant map".
+- Auto-categorizes every matching row - overriding MyFinanda's own category,
+  not just an unclassified one - using a shared merchant->category map
+  (`merchant_categories.csv`); see "Merchant map".
 - Numbers rows two ways: `seq` (account-status order by billing date) and
   `op_seq` (operation-time order), with a stable `id` per source.
 - Stores `category` (ענף) but not the group (`קבוצת ענפים`): the group is a
@@ -73,6 +74,9 @@ python ~/.cursor/skills/finance-unify/scripts/unify.py --project ~/Projects/home
   `category_map.yaml`.
 - Flags anything uncertain (uncategorized, assumed category/FX rate, unmatched
   credit-card charge, refund, installment) and writes a flag report.
+- Binds each `refund` row to the expense it reverses (same vendor, matching
+  amount), so the pair can be excluded together in later analysis. See
+  "Refund binding".
 
 ## Files
 
@@ -158,6 +162,45 @@ doesn't clearly reconcile is kept as-is.
 Because the group is not stored, Skill 3 recognizes transfers/CC settlements by
 reconstructing the group from `category` (they map to `העברות פנימיות`).
 
+## Refund binding
+
+Every row flagged `refund` (a positive-amount credit-card row) is matched
+against the earlier expense it reverses, so the pair can be dropped together
+in later spending analysis instead of counting the refund as new income.
+
+Matching looks back up to ~13 months for a credit-card expense from the same
+vendor (same merchant text, or - for names that carry a trailing phone number
+or country code, e.g. `PAYPAL *X 12345 LU` vs `...IT` - the same first couple
+of words):
+
+- **Obvious** (flag stays `refund`): the vendor matches and the amount is
+  *exactly* the same in the original transaction currency - even a foreign-
+  currency charge whose ILS refund differs because the exchange rate moved
+  between the two dates still counts as obvious. A same-statement fallback
+  also catches pairs where the vendor text itself doesn't match at all (e.g. a
+  card fee immediately offset by a waiver): same card-statement batch, same
+  category, exact opposite ILS amount.
+- **Non-obvious / assumed** (flag becomes `assumed_refund`): the vendor
+  matches but the amount doesn't line up exactly - a partial refund, a
+  retained fee, or a cross-currency adjustment. The best available match (by
+  amount closeness, preferring the same card and the closest date) is used.
+- **No match found** within the window (flag becomes `unmatched_refund`): the
+  refund is left as an ordinary row.
+
+Either way, both the refund and the expense it was matched to get their
+`reference` field set to each other's `id` (a bidirectional link) - if a row
+already carries a `reference` (e.g. a manual correction), the new id is
+appended with `;` rather than overwriting it. Both rows also get a one-line
+`explanation`, deliberately different on each side so nothing is duplicated:
+- The **refund** row explains the match itself - the FX difference, the
+  refunded percentage, the fee-waiver note, etc. - or, for a plain exact
+  match with nothing more to say, `Refund for <expense id>`.
+- The **expense** row just says `Refunded by <refund id>`; the detail already
+  lives on the refund row.
+
+Rows you've already corrected by hand (e.g. `--set ID:reference=OTHER_ID`) are
+left untouched.
+
 ## Customizing the taxonomy (per project)
 
 On the first run the skill copies the master taxonomy to
@@ -202,9 +245,11 @@ Guidelines:
 
 ## Merchant map (shared auto-categorization)
 
-MyFinanda leaves some transactions as `ללא סיווג` (unclassified). The skill fills
-these from a shared `merchant_categories.csv` that ships with the skill (not
-per-project), so a merchant you categorize once is recognized in every project
+MyFinanda's own categorization is sometimes missing (`ללא סיווג`) and sometimes
+just wrong or inconsistent for a given vendor (the same merchant can land in
+different categories across statements). The skill fixes both from a shared
+`merchant_categories.csv` that ships with the skill (not per-project), so a
+merchant you categorize once is recognized - and corrected - in every project
 and every future export.
 
 Format (UTF-8 CSV; `#` lines are comments):
@@ -218,11 +263,31 @@ GALLERIA BORGHESE ARTE,אטרקציות,assumed
 - **Matching**: case-insensitive, with runs of whitespace collapsed to one
   space on both the merchant key and the row's `description`. A key is tried
   first as a plain substring; if that misses and the key contains regex syntax
-  (e.g. `FLORIST ALMATY.*`), it is also tried as a regular expression. When
-  several keys match, the longest (most specific) wins. Only rows still
-  unclassified are touched - a real MyFinanda category is never overwritten.
+  (e.g. `FLORIST ALMATY.*`), it is also tried as a regular expression.
+- **File order decides, not key length.** When several keys match, the
+  **first matching row in the file (top to bottom) wins** and no later row is
+  even checked. So a narrow exception must be placed *above* the broader rule
+  it needs to override - e.g. `חניון`/`חניונים` -> `חנייה` sit near the top of
+  the file so they win over a later, broader `פרוגרס` rule that would
+  otherwise also match `פרוגרס חניונים`.
+- **Overrides, always**: a match here wins over whatever MyFinanda put in
+  `ענף` for that row, not just over a blank/unclassified one - every entry in
+  this file has already been reviewed (by you or the skill), so it's trusted
+  over the raw export. The only things that outrank it are a manual fix
+  (flag `manual_category`, from a `corrections.csv`/`--set` entry) and any
+  `--set` correction given in the same run (corrections are applied after
+  this map). When an override actually changes a real category MyFinanda had
+  assigned, the row's `explanation` records what the old category was, so you
+  can audit overrides from `ledger.flags.csv`.
 - **source**: `user` (you confirmed it) sets flag `merchant_category`;
-  `assumed` (a heuristic) sets flag `assumed_category`.
+  `assumed` (a heuristic) sets flag `assumed_category`. Both override equally
+  - the distinction is only for auditing which entries are confirmed.
+- **Beware overly short/generic keys.** A key like `ENI` or `BG` can match as
+  a coincidental substring of an unrelated description (e.g. `ENI` inside
+  `PAYPAL *GENI` or `PETITE VENISE`) and mis-categorize it - this actually
+  happened and both were fixed/removed. Prefer longer, more specific keys, or
+  anchor a regex (e.g. `\bENI\b`, `^ACME(\s|$)`, `^STAY$`) when the vendor
+  name is short or could be a prefix/suffix of something else.
 
 ### Reusing project fixes (promote to the shared map)
 
@@ -236,17 +301,20 @@ is reported:
          SISSI UND FRANZ E5 SAT  ->  אטרקציות
 ```
 
-Re-run with `--promote-corrections` to append those merchant->category pairs
-(as `user`) to `merchant_categories.csv`. They then auto-apply everywhere.
-Because the map lives inside the skill, promoting edits the deployed copy; in
-this dev setup, also keep the source copy in sync (or run against the source
-skill folder) and redeploy so the change is preserved.
+Re-run with `--promote-corrections` to add those merchant->category pairs (as
+`user`) to `merchant_categories.csv`. They are inserted right after the
+header - ahead of every pre-existing entry - so a freshly promoted, specific
+correction is guaranteed to be checked (and win) before any broader rule
+already in the file; they then auto-apply everywhere. Because the map lives
+inside the skill, promoting edits the deployed copy; in this dev setup, also
+keep the source copy in sync (or run against the source skill folder) and
+redeploy so the change is preserved.
 
 ## Output columns
 `seq, op_seq, id, source_type, source_name, date_iso, time, date_serial,
 billing_date, amount_ils, amount_orig, currency_orig, ils_rate, description,
 detail, merchant_country, category, installment_no, installment_total,
-reference, link_group, flags`
+reference, link_group, flags, explanation`
 
 The group (`קבוצת ענפים`) is intentionally not a column - reconstruct it from
 `category` via `category_map.yaml` (see "Customizing the taxonomy").
@@ -276,15 +344,18 @@ source column; "derived" = computed by the skill.
 | `category` | `ענף` | `ענף` | group reconstructed from this |
 | `installment_no` | - | `מספר תשלום נוכחי` | |
 | `installment_total` | - | `סך הכל תשלומים` | |
-| `reference` | `אסמכתה` | - | |
+| `reference` | `אסמכתה` (bank) | derived (refund binding) | see "Refund binding"; appended with `;` if already set |
 | `link_group` | derived | derived | ties reconciled/annihilated rows |
 | `flags` | derived | derived | see below |
+| `explanation` | derived | derived | refund-binding note, or a merchant-map category-override note |
 
 ### Flags
 `unmatched_category` (`ענף = ללא סיווג`), `merchant_category` (from the shared
 merchant map), `assumed_category` (in-file guess or `assumed` map entry),
 `manual_category` (from a correction), `no_fx_rate`, `assumed_fx_rate`,
-`unmatched_cc`, `refund`, `installment`.
+`unmatched_cc`, `installment`, `refund` (obvious binding found - see "Refund
+binding"), `assumed_refund` (non-obvious binding found), `unmatched_refund`
+(no binding found).
 
 ## Example prompts
 - "Create a personal-finance project called home-finance and load

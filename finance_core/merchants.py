@@ -1,5 +1,6 @@
-"""Shared merchant -> category map (a skill-level file), auto-applied to rows
-that MyFinanda left unclassified.
+"""Shared merchant -> category map (a skill-level file), auto-applied to every
+matching row - including ones MyFinanda already put a (possibly wrong or
+inconsistent) category on.
 
 File format (UTF-8 CSV, `<skill>/merchant_categories.csv`):
 
@@ -9,13 +10,27 @@ File format (UTF-8 CSV, `<skill>/merchant_categories.csv`):
 
 - Lines starting with `#` are comments; a header row `merchant,category,source`
   is skipped.
-- `source` is `user` (explicitly confirmed) or `assumed` (heuristic).
+- `source` is `user` (explicitly confirmed) or `assumed` (heuristic) - both
+  override MyFinanda's own category, since every entry here has already been
+  reviewed by the user or the skill; only `flags` differ (`merchant_category`
+  vs `assumed_category`) so overrides stay auditable.
 - Matching: case-insensitive, with runs of whitespace collapsed to one space on
   both the merchant key and the record's `description` before comparing.
   A key is tried first as a plain substring; if that doesn't match and the key
   contains regex syntax (e.g. `FLORIST ALMATY.*`), it is also tried as a
   case-insensitive regular expression (`re.search`) against the description.
-  When several keys match, the longest key wins (most specific).
+  When several keys match, **file order decides**: the first matching row
+  (top to bottom) wins and no later row is even checked. So a narrower
+  exception must be placed *above* the broader rule it should override (e.g.
+  `חניון`/`חניונים` -> `חנייה` are near the top so they win over a later,
+  broader `פרוגרס` rule that would otherwise also match `פרוגרס חניונים`).
+- A row already fixed by hand (flag `manual_category`, from a `corrections.csv`
+  entry preserved across an incremental run) is never touched here - explicit
+  corrections always win. Per-run `--set` corrections still win too, since
+  they are applied after this map, later in the pipeline.
+- When this overrides a real (non-blank, non-`ללא סיווג`) category MyFinanda
+  had assigned, the row's `explanation` records what the old category was, so
+  overrides stay visible in the flag report.
 
 This map is shared across all projects. Per-project one-off fixes live in the
 project's corrections.csv; `unify.py` can promote those into this file so they
@@ -39,8 +54,10 @@ def _normalize_ws(text: str) -> str:
 
 
 def load(path: str | None) -> list[tuple[str, str, str, str, "re.Pattern | None"]]:
-    """Return entries as (key_norm, merchant, category, source, regex), sorted so
-    the longest (most specific) merchant key is tried first. `key_norm` is the
+    """Return entries as (key_norm, merchant, category, source, regex), in the
+    same order they appear in the file - the FIRST matching entry wins (see
+    `match()`), so file order is significant: put an entry that must take
+    precedence over a broader/later one earlier in the file. `key_norm` is the
     merchant text lowercased with whitespace collapsed; `regex` is a precompiled
     case-insensitive pattern for `key_norm` when it compiles, else None."""
     entries: list[tuple[str, str, str, str, "re.Pattern | None"]] = []
@@ -66,12 +83,12 @@ def load(path: str | None) -> list[tuple[str, str, str, str, "re.Pattern | None"
                 except re.error:
                     pattern = None
                 entries.append((key_norm, merchant, category, source, pattern))
-    entries.sort(key=lambda e: len(e[0]), reverse=True)
     return entries
 
 
 def match(description: str, entries: list[tuple[str, str, str, str, "re.Pattern | None"]]):
-    """Return (category, source, merchant) for the longest matching key, or None."""
+    """Return (category, source, merchant) for the first matching key in file
+    order, or None."""
     d = _normalize_ws(description).lower()
     if not d:
         return None
@@ -88,49 +105,78 @@ def covers(description: str, entries: list[tuple[str, str, str, str, "re.Pattern
 
 
 def apply(records: list[dict], entries: list[tuple[str, str, str, str, "re.Pattern | None"]]) -> int:
-    """Fill still-unclassified rows from the shared map. `user` entries flag
-    `merchant_category`; `assumed` entries flag `assumed_category`."""
+    """Apply the shared map to every matching row, overriding MyFinanda's own
+    category where it differs (every map entry has already been reviewed).
+    `user` entries flag `merchant_category`; `assumed` entries flag
+    `assumed_category`. A row already fixed by hand (`manual_category`) is
+    left untouched. Returns the number of rows whose category actually
+    changed (a match that already agrees with the existing category doesn't
+    count and isn't re-flagged)."""
     if not entries:
         return 0
     applied = 0
     for r in records:
-        cat = (r.get("category") or "").strip()
-        if cat and cat != columns.UNCLASSIFIED:
+        if "manual_category" in r.get("flags", []):
             continue
         hit = match(r.get("description", ""), entries)
         if not hit:
             continue
-        category, source, _merchant = hit
+        category, source, merchant = hit
+        old_cat = (r.get("category") or "").strip()
+        if old_cat == category:
+            continue
         r["category"] = category
         if "unmatched_category" in r.get("flags", []):
             r["flags"].remove("unmatched_category")
         schema.add_flag(r, "merchant_category" if source == "user" else "assumed_category")
+        if old_cat and old_cat != columns.UNCLASSIFIED:
+            r["explanation"] = (
+                f"Category overridden by merchant map entry '{merchant}': "
+                f"MyFinanda had '{old_cat}'."
+            )
         applied += 1
     return applied
 
 
 def append(path: str, rows: list[tuple[str, str, str]]) -> int:
-    """Append new (merchant, category, source) rows to the shared map, skipping
-    exact-duplicate merchant keys already present. Returns the number written."""
+    """Insert new (merchant, category, source) rows into the shared map right
+    after the header - ahead of every pre-existing entry - skipping exact-
+    duplicate merchant keys already present. Since the first matching row in
+    the file wins (see `match()`), a freshly promoted correction must be
+    placed ahead of any pre-existing, potentially broader rule; appending it
+    at the end would let an earlier rule silently shadow it. Returns the
+    number of rows written."""
     if not rows:
         return 0
     existing = {e[1] for e in load(path)}  # merchant (original case)
-    to_add = []
+    to_add: list[list[str]] = []
     seen = set()
     for merchant, category, source in rows:
         if merchant in existing or merchant in seen:
             continue
         seen.add(merchant)
-        to_add.append((merchant, category, source or "user"))
+        to_add.append([merchant, category, source or "user"])
     if not to_add:
         return 0
-    file_exists = os.path.exists(path)
+
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    # Plain utf-8 on append so we never inject a BOM mid-file.
-    with open(path, "a", encoding="utf-8", newline="") as fh:
-        writer = csv.writer(fh)
-        if not file_exists:
-            writer.writerow(HEADER)
-        for merchant, category, source in to_add:
-            writer.writerow([merchant, category, source])
+    all_rows: list[list[str]] = []
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8-sig", newline="") as fh:
+            all_rows = list(csv.reader(fh))
+
+    header_idx = next(
+        (i for i, row in enumerate(all_rows)
+         if row and row[0].strip() == "merchant" and len(row) > 1 and (row[1] or "").strip() == "category"),
+        None,
+    )
+    if header_idx is None:
+        all_rows = [HEADER] + all_rows
+        insert_at = 1
+    else:
+        insert_at = header_idx + 1
+    all_rows[insert_at:insert_at] = to_add
+
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        csv.writer(fh).writerows(all_rows)
     return len(to_add)

@@ -41,6 +41,7 @@ from finance_core import (  # noqa: E402
     io_xlsx,
     merchants,
     reconcile,
+    refunds,
     registry,
     schema,
 )
@@ -335,6 +336,8 @@ def main() -> int:
         promoted = merchants.append(merchant_map_path, [(m, c, "user") for m, c in promote])
         print(f"[info] added {promoted} merchant mapping(s) to {merchant_map_path}")
 
+    refund_stats = refunds.bind_refunds(records)
+
     ordered = assign_ordinals(records)
 
     out_dir = os.path.dirname(os.path.abspath(out_path))
@@ -351,7 +354,7 @@ def main() -> int:
 
     write_flag_report(flags_path, ordered)
 
-    _summary(ordered, stats, mapped, inferred, applied, out_path, flags_path)
+    _summary(ordered, stats, mapped, inferred, applied, refund_stats, out_path, flags_path)
 
     if promote and not args.promote:
         print(f"\n[note] {len(promote)} project correction(s) are not in the shared "
@@ -374,7 +377,9 @@ def write_flag_report(path: str, records: list[dict]) -> None:
         "no_fx_rate": "amount_ils",
         "assumed_fx_rate": "ils_rate",
         "unmatched_cc": "amount_ils",
-        "refund": "amount_ils",
+        "refund": "reference",
+        "assumed_refund": "reference",
+        "unmatched_refund": "amount_ils",
         "installment": "installment_total",
     }
     for r in records:
@@ -389,12 +394,13 @@ def write_flag_report(path: str, records: list[dict]) -> None:
                 "date_iso": r.get("date_iso", ""),
                 "source_name": r.get("source_name", ""),
                 "description": r.get("description", ""),
+                "explanation": r.get("explanation", ""),
             })
-    cols = ["seq", "id", "flag", "field", "value", "date_iso", "source_name", "description"]
+    cols = ["seq", "id", "flag", "field", "value", "date_iso", "source_name", "description", "explanation"]
     io_xlsx.write_csv(path, cols, rows)
 
 
-def _summary(records, stats, mapped, inferred, applied, out_path, flags_path) -> None:
+def _summary(records, stats, mapped, inferred, applied, refund_stats, out_path, flags_path) -> None:
     flag_counts: Counter = Counter()
     for r in records:
         for f in r.get("flags", []):
@@ -408,6 +414,9 @@ def _summary(records, stats, mapped, inferred, applied, out_path, flags_path) ->
     print(f"merchant categories set:   {mapped}")
     print(f"categories inferred:       {inferred}")
     print(f"corrections applied:       {applied}")
+    print(f"refunds bound (obvious):   {refund_stats.get('obvious', 0)}")
+    print(f"refunds bound (assumed):   {refund_stats.get('assumed', 0)}")
+    print(f"refunds unmatched:         {refund_stats.get('unmatched', 0)}")
     if flag_counts:
         print("flags:")
         for flag, n in sorted(flag_counts.items(), key=lambda kv: -kv[1]):

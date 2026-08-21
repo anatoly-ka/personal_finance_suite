@@ -2,7 +2,12 @@
 "# 'assumed'=heuristic. Merchant name matches case-insensitively, with runs of"
 "# whitespace collapsed to one space; a plain substring is tried first, and if"
 "# that misses and the name has regex syntax, it is tried as a regular expression."
+"# FILE ORDER MATTERS: the first matching row (top to bottom) wins and stops"
+"# further checking - put a narrow exception above the broader rule it must"
+"# override (see חניון/חניונים below, which must outrank the later פרוגרס rule)."
 merchant,category,source
+חניון,חנייה,user
+חניונים,חנייה,user
 SAS Temperle,לינה,user
 ARLUMA SAS,חנייה,user
 SASKI,עושים קניות - שונות,user
@@ -36,6 +41,7 @@ FLORIST ALMATY.*,"מתנות, חתונות ואירועים",user
 Yandex\*Market,"מתנות, חתונות ואירועים",user
 GEORGIAN AIRWAYS,טיסות,user
 DELTA .*AIR.*,טיסות,user
+DELTA .*US,טיסות,user
 AMNH New York US,אטרקציות,assumed
 CHIESA BASILICA SAN CL,אטרקציות,assumed
 COURTAULD INSTITUTE LONDON GB,אטרקציות,assumed
@@ -89,7 +95,7 @@ DEMO - SOCIETA A RESPO,"בתי קפה, מסעדות ופאבים",assumed
 DENIROS,"בתי קפה, מסעדות ופאבים",assumed
 DIDOVICH ITALO VENEZIA IT,"בתי קפה, מסעדות ופאבים",assumed
 EATERY .*,"בתי קפה, מסעדות ופאבים",assumed
-Erzs bet K v z  Kft.,"בתי קפה, מסעדות ופאבים",assumed
+Erzs .*,"בתי קפה, מסעדות ופאבים",assumed
 FATAMORGANA,"בתי קפה, מסעדות ופאבים",assumed
 FRAUMUENSTER GASTRO ZUERICH CH,"בתי קפה, מסעדות ופאבים",assumed
 Farkasne Selmeczki Ilo,"בתי קפה, מסעדות ופאבים",assumed
@@ -132,7 +138,6 @@ TST\* BOND.*,"בתי קפה, מסעדות ופאבים",assumed
 TST\*HUSK Charleston US,"בתי קפה, מסעדות ופאבים",user
 WENNGARNS BAGARI OCH C SIGTUNA SE,"בתי קפה, מסעדות ופאבים",assumed
 ZAPIEKANKI U HANKI R,"בתי קפה, מסעדות ופאבים",user
-ZETTLE .*,"בתי קפה, מסעדות ופאבים",assumed
 אינגליש קייק פ?ת,"בתי קפה, מסעדות ופאבים",assumed
 ג'אנגו ברגר תל אביב,"בתי קפה, מסעדות ופאבים",assumed
 ד.ס קולינריה,"בתי קפה, מסעדות ופאבים",assumed
@@ -140,15 +145,21 @@ ZETTLE .*,"בתי קפה, מסעדות ופאבים",assumed
 "כאמלה הסעדה בע""מ","בתי קפה, מסעדות ופאבים",assumed
 נטו אינווסטמנט כללית חולון מאפיה,"בתי קפה, מסעדות ופאבים",assumed
 סי בר דוכני מזון,"בתי קפה, מסעדות ופאבים",assumed
+סגפרדו-מגל מערב כביש 6,"בתי קפה, מסעדות ופאבים",user
+סי קפה מגל מערב,"בתי קפה, מסעדות ופאבים",user
+סי קפה נען מערב,"בתי קפה, מסעדות ופאבים",user
 קפיטריה מרפאות חוץ מאיר,"בתי קפה, מסעדות ופאבים",assumed
 CHEVRON.*,דלק וטעינה לרכב,user
 CIRCLE K,דלק וטעינה לרכב,assumed
 CIRCLEK.*,דלק וטעינה לרכב,assumed
-ENI,דלק וטעינה לרכב,assumed
 EUROIL SRL,דלק וטעינה לרכב,assumed
 NESTE EXPRESS SAVONLIN SAVONLINNA FI,דלק וטעינה לרכב,assumed
 PHILLIPS.*,דלק וטעינה לרכב,user
 PV ENI,דלק וטעינה לרכב,assumed
+PV ENI - 05493,דלק וטעינה לרכב,user
+ENI59069,דלק וטעינה לרכב,user
+דור אלון מגל מערב,דלק וטעינה לרכב,user
+תחנת דלק מגל מערב 0 מגל 3884500,דלק וטעינה לרכב,user
 COPPERFIELD,"הצגות, הופעות וקולנוע",user
 EJK FW M G TEATRO LA BOLOGNA IT,"הצגות, הופעות וקולנוע",assumed
 HOLLYWOOD PANTAGES THE LOS ANGELES US,"הצגות, הופעות וקולנוע",user
@@ -173,7 +184,6 @@ economybookings.com Marupe LV,השכרת רכב,assumed
 -BALIפאיימי,חופשות וטיולים - שונות,assumed
 ALLA RIVETTA VENEZIA IT,"בתי קפה, מסעדות ופאבים",assumed
 AZWAI,חופשות וטיולים - שונות,assumed
-BG,חופשות וטיולים - שונות,assumed
 BLUMOD MODICA,חופשות וטיולים - שונות,assumed
 BURIAN GYULA,חופשות וטיולים - שונות,assumed
 CHS AIRP FLIGHT READY CHARLESTON US,"בתי קפה, מסעדות ופאבים",assumed
@@ -229,8 +239,7 @@ RELAI DU LOUVRE,לינה,assumed
 The Hawk Inn,לינה,assumed
 BARNES & NOBLE.*,מוזיקה וקריאה,assumed
 W H SMITH TRAVEL,מוזיקה וקריאה,assumed
-ACME,"מזון, משקאות, סופר ומכולת",assumed
-ACME OLD BRIDGE US,"מזון, משקאות, סופר ומכולת",assumed
+^ACME(\s|$),"מזון, משקאות, סופר ומכולת",assumed
 KAASHANDEL SAUER GRONSVELD NL,"מזון, משקאות, סופר ומכולת",assumed
 "MARKET SWEET GOURMET, CHARLESTON US","מזון, משקאות, סופר ומכולת",assumed
 OZON ALMATY KZ,עושים קניות - שונות,user
@@ -249,7 +258,7 @@ sun kiss,"מספרה, טיפולי יופי ומוצרי טיפוח",assumed
 ARLANDA,עושים קניות - שונות,assumed
 ARLANDA T PIER A SE,עושים קניות - שונות,assumed
 ARLANDA T5,עושים קניות - שונות,assumed
-ARSC,עושים קניות - שונות,assumed
+^ARSC$,עושים קניות - שונות,assumed
 ART FOR ALL,עושים קניות - שונות,assumed
 BALTONA,עושים קניות - שונות,assumed
 CALATA,עושים קניות - שונות,assumed
@@ -259,7 +268,7 @@ DUFRITAL MXP T,עושים קניות - שונות,assumed
 DUTY FREE STORE BY N,עושים קניות - שונות,assumed
 FH\* HOPSCOTCH PDX LETSHOPSCOTCH US,עושים קניות - שונות,assumed
 HELOPAY\*HELLOPAY KER.,עושים קניות - שונות,assumed
-HEMA,עושים קניות - שונות,assumed
+^HEMA ,עושים קניות - שונות,assumed
 HEMA DUSSELDORF,עושים קניות - שונות,assumed
 HERZL AJANDEKBOLT,עושים קניות - שונות,assumed
 MAVE & MARKET,עושים קניות - שונות,assumed
@@ -270,19 +279,19 @@ PHZ BALTONA.*,עושים קניות - שונות,assumed
 PYLONES STPAUL,עושים קניות - שונות,assumed
 SEPAY B.V. DEN HAAG NL,עושים קניות - שונות,assumed
 SIMPLEP\*E&WESSENTIALS,עושים קניות - שונות,assumed
-STAY,עושים קניות - שונות,assumed
+^STAY$,עושים קניות - שונות,assumed
 WC Billiard Room Shop,עושים קניות - שונות,assumed
 life changing products,עושים קניות - שונות,assumed
 ssik nus,עושים קניות - שונות,assumed
 א.ר.א גולדה מבשרת,עושים קניות - שונות,assumed
 איגור ליטבאק,עושים קניות - שונות,assumed
-אלון אינטרייד מגל מערב,עושים קניות - שונות,assumed
+"אלון אינטרייד מגל מערב","בתי קפה, מסעדות ופאבים",user
+אלון אינטרייד-נען מערב,"בתי קפה, מסעדות ופאבים",user
 הגשמת חלום,עושים קניות - שונות,assumed
 הייטק סטור- ס.א.ל טיטניום,עושים קניות - שונות,assumed
 הקרן לעזרה הדדית לישובי ה,עושים קניות - שונות,assumed
 "נקסטק ג.ל.ל.א בע""מ",עושים קניות - שונות,assumed
 סנטרל פארק - בן זנו,עושים קניות - שונות,assumed
-ערב,עושים קניות - שונות,assumed
 פופסי POPSI,עושים קניות - שונות,assumed
 E-Play Stock,"צעצועים, משחקים ודמי כיס",assumed
 WL \*STEAM PURCHASE,"צעצועים, משחקים ודמי כיס",assumed

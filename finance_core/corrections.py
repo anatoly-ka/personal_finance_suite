@@ -58,7 +58,10 @@ def apply(records: list[dict], corrections: dict[str, dict[str, str]]) -> int:
         if rec is None:
             continue
         for field, value in fields.items():
-            rec[field] = value
+            if field == "flags":
+                rec["flags"] = [f.strip() for f in value.split(";") if f.strip()] if isinstance(value, str) else list(value)
+            else:
+                rec[field] = value
             count += 1
             if field == "category" and value and value != columns.UNCLASSIFIED:
                 flags = rec.get("flags", [])
