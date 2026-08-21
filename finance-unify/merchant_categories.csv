@@ -1,0 +1,303 @@
+﻿"# finance-unify merchant->category map. 'user'=explicitly confirmed,"
+"# 'assumed'=heuristic. Merchant name matches case-insensitively, with runs of"
+"# whitespace collapsed to one space; a plain substring is tried first, and if"
+"# that misses and the name has regex syntax, it is tried as a regular expression."
+merchant,category,source
+SAS Temperle,לינה,user
+ARLUMA SAS,חנייה,user
+SASKI,עושים קניות - שונות,user
+Ritz Paris,"בתי קפה, מסעדות ופאבים",user
+Arrival Duty Free,עושים קניות - שונות,user
+איסתא,טיסות,user
+פרקט בשרון,ריהוט ואביזרים לבית,user
+"בנק הפועלים נתב""ג","העברת מט""ח",user
+הפועלים,"העברת מט""ח",user
+Magnolia Plantation,אטרקציות,user
+House of Samsonite,עושים קניות - שונות,user
+ST Milan Malpensa,לינה,user
+CENTRAL PLAZA TOURIST,חופשות וטיולים - שונות,user
+Arriva Italia,תחבורה ציבורית,user
+Locauto,השכרת רכב,user
+WEB\*ONESHOTPAY,חופשות וטיולים - שונות,user
+BOULDERGAR,"מתנות, חתונות ואירועים",user
+STRADARIUM.RU VILNIUS,"הצגות, הופעות וקולנוע",user
+WWW.STRADARIUM.RU YEREVAN,"מתנות, חתונות ואירועים",user
+תמיר אדרי,עושים קניות - שונות,user
+פרוגרס,"צהרונים, חוגים, פעילויות וקייטנות",user
+MIA INSPIRATION,"בגדים, נעליים ואקססוריז",user
+בליקר בייקרי,אוכלים בחוץ - שונות,user
+עמותת ותיקי,תרומות,user
+Schloss Neuschwanstein,אטרקציות,user
+citizenM,לינה,user
+STEAMGAMES.COM,"צעצועים, משחקים ודמי כיס",user
+.*STEAM,"צעצועים, משחקים ודמי כיס",user
+BIT- BANK HAPOALIM,"מתנות, חתונות ואירועים",user
+FLORIST ALMATY.*,"מתנות, חתונות ואירועים",user
+Yandex\*Market,"מתנות, חתונות ואירועים",user
+GEORGIAN AIRWAYS,טיסות,user
+DELTA .*AIR.*,טיסות,user
+AMNH New York US,אטרקציות,assumed
+CHIESA BASILICA SAN CL,אטרקציות,assumed
+COURTAULD INSTITUTE LONDON GB,אטרקציות,assumed
+COURTAULD WEBSHOP,אטרקציות,assumed
+DIADEMA PRO SRL SEMPLI,אטרקציות,assumed
+ENTRE SOMMARLAND VISBY SE,אטרקציות,assumed
+FENOMENALEN,אטרקציות,assumed
+GALLERIA BORGHESE ARTE,אטרקציות,user
+GROUNDS FOR SCULPTURE,אטרקציות,user
+GetYourGuide BERLIN DE,אטרקציות,assumed
+HEINEKEN EXP. TICKET AMSTERDAM NL,אטרקציות,assumed
+ITINERA,אטרקציות,assumed
+LELLEI VIDAMPARK,אטרקציות,assumed
+LONGLEAT ENTERPRISES L,אטרקציות,assumed
+MAD AXE,אטרקציות,assumed
+M.zeum Shop.*,אטרקציות,assumed
+NNT\*schlosslinderhof.d,אטרקציות,assumed
+NYX\*KNEIPBYN BJUV SE,אטרקציות,assumed
+PP\*BILETY.MHK.PL KRAKOW PL,אטרקציות,assumed
+RECREATION.GOV,אטרקציות,assumed
+REGIONDO\* COPERNICUS MUNICH DE,אטרקציות,assumed
+ROYAL ACADEMY LONDON GB,אטרקציות,assumed
+SELFIE WORLD KFT HAJDUBOSZORME HU,אטרקציות,assumed
+SOC.COOP.CULTURE,אטרקציות,assumed
+SPACE NEEDLE TICKETS.*,אטרקציות,user
+Selfie World kft.,אטרקציות,assumed
+TICKETS .*NOTTINGHAM.*,אטרקציות,user
+VASAMUSEETS ENT STOCKHOLM SE,אטרקציות,assumed
+WONDERS OF NATURE.*,אטרקציות,assumed
+Walkthrough Level.*,אטרקציות,assumed
+ZZ3006 FENOMENALEN,אטרקציות,assumed
+אקסטריים,אטרקציות,assumed
+פאן גלרי,אטרקציות,assumed
+BURLINGTON STORES.*,"בגדים, נעליים ואקססוריז",user
+MARSHALLS.*,"בגדים, נעליים ואקססוריז",user
+OVS.*,"בגדים, נעליים ואקססוריז",assumed
+SOLOW MAASSTRICHT NL,"בגדים, נעליים ואקססוריז",assumed
+משכית ביג גלילות-צמרת,"בגדים, נעליים ואקססוריז",assumed
+BA GHETTO MILKY,"בתי קפה, מסעדות ופאבים",assumed
+BACKEREI KAMPS.*,"בתי קפה, מסעדות ופאבים",assumed
+BENNETS BAR.*,"בתי קפה, מסעדות ופאבים",assumed
+BOND 45,"בתי קפה, מסעדות ופאבים",user
+BUFFET,"בתי קפה, מסעדות ופאבים",assumed
+Belvarosi Lugas Ettere,"בתי קפה, מסעדות ופאבים",assumed
+Bierbar,"בתי קפה, מסעדות ופאבים",assumed
+CHIRIKO,"בתי קפה, מסעדות ופאבים",assumed
+CICHETTERIA AL VECIO M VENEZIA IT,"בתי קפה, מסעדות ופאבים",assumed
+Confiserie Sprungli AG V,"בתי קפה, מסעדות ופאבים",assumed
+DELFIN.*SALTSJOBADEN.*,"בתי קפה, מסעדות ופאבים",assumed
+DEMO - SOCIETA A RESPO,"בתי קפה, מסעדות ופאבים",assumed
+DENIROS,"בתי קפה, מסעדות ופאבים",assumed
+DIDOVICH ITALO VENEZIA IT,"בתי קפה, מסעדות ופאבים",assumed
+EATERY .*,"בתי קפה, מסעדות ופאבים",assumed
+Erzs bet K v z  Kft.,"בתי קפה, מסעדות ופאבים",assumed
+FATAMORGANA,"בתי קפה, מסעדות ופאבים",assumed
+FRAUMUENSTER GASTRO ZUERICH CH,"בתי קפה, מסעדות ופאבים",assumed
+Farkasne Selmeczki Ilo,"בתי קפה, מסעדות ופאבים",assumed
+Fine Art Bistro,"בתי קפה, מסעדות ופאבים",assumed
+Flat White Art,"בתי קפה, מסעדות ופאבים",assumed
+GEORG JOS. KAES GMBH FUESSEN DE,"בתי קפה, מסעדות ופאבים",assumed
+GOURMET VENEZIA IT,"בתי קפה, מסעדות ופאבים",assumed
+GyulaiSandorEV,"בתי קפה, מסעדות ופאבים",assumed
+KARMELLO,"בתי קפה, מסעדות ופאבים",assumed
+Kawiarnia Letnia,"בתי קפה, מסעדות ופאבים",assumed
+Kezmuves Langallo,"בתי קפה, מסעדות ופאבים",assumed
+Kilwins.*Charleston.*,"בתי קפה, מסעדות ופאבים",assumed
+LA FONTANA VISBY SE,"בתי קפה, מסעדות ופאבים",assumed
+LA PAROLACCIA ICE CREA,"בתי קפה, מסעדות ופאבים",assumed
+LAST DROP.*,"בתי קפה, מסעדות ופאבים",assumed
+LILLA JAPAN UPPSALA SE,"בתי קפה, מסעדות ופאבים",assumed
+LONG ISLAND,"בתי קפה, מסעדות ופאבים",assumed
+MAISON PATISSERIE NEW YORK US,"בתי קפה, מסעדות ופאבים",assumed
+MASCAGNI RISTOQUALITY,"בתי קפה, מסעדות ופאבים",assumed
+NOBIS PRINTEN.*AACHEN.*,"בתי קפה, מסעדות ופאבים",assumed
+OLE & STEEN.*,"בתי קפה, מסעדות ופאבים",assumed
+PALA PALETTA FORCHETTA,"בתי קפה, מסעדות ופאבים",assumed
+PANCACAO,"בתי קפה, מסעדות ופאבים",assumed
+PANDA CATERING PALAZZO,"בתי קפה, מסעדות ופאבים",assumed
+PORTA DELLA CAVINA,"בתי קפה, מסעדות ופאבים",assumed
+Pasha Cafe,"בתי קפה, מסעדות ופאבים",assumed
+RESTAURACJA KOGEL MOGE,"בתי קפה, מסעדות ופאבים",assumed
+RISTORAZIONE SANTI GIO VENEZIA IT,"בתי קפה, מסעדות ופאבים",assumed
+SACCHI SRL,"בתי קפה, מסעדות ופאבים",assumed
+SARDER S.R.L.,"בתי קפה, מסעדות ופאבים",assumed
+SISSI UND FRANZ,"בתי קפה, מסעדות ופאבים",assumed
+SQ \*A SLICE OF NEW YOR New York US,"בתי קפה, מסעדות ופאבים",assumed
+SQ \*ABO HALAL FOOD Brooklyn US,"בתי קפה, מסעדות ופאבים",assumed
+SQ \*AMORINO NEW YORK New York US,"בתי קפה, מסעדות ופאבים",assumed
+SQ \*RUSSIAN SAMOVAR RE New York US,"בתי קפה, מסעדות ופאבים",user
+TASTE OF SCOTLAND.*,"מזון, משקאות, סופר ומכולת",user
+.*CHOCOLATAR.*,אטרקציות,user
+THE WHISKY TRAIL.*,"מזון, משקאות, סופר ומכולת",user
+TST\* BOND.*,"בתי קפה, מסעדות ופאבים",assumed
+TST\*HUSK Charleston US,"בתי קפה, מסעדות ופאבים",user
+WENNGARNS BAGARI OCH C SIGTUNA SE,"בתי קפה, מסעדות ופאבים",assumed
+ZAPIEKANKI U HANKI R,"בתי קפה, מסעדות ופאבים",user
+ZETTLE .*,"בתי קפה, מסעדות ופאבים",assumed
+אינגליש קייק פ?ת,"בתי קפה, מסעדות ופאבים",assumed
+ג'אנגו ברגר תל אביב,"בתי קפה, מסעדות ופאבים",assumed
+ד.ס קולינריה,"בתי קפה, מסעדות ופאבים",assumed
+טקסס ראשון לציון,"בתי קפה, מסעדות ופאבים",assumed
+"כאמלה הסעדה בע""מ","בתי קפה, מסעדות ופאבים",assumed
+נטו אינווסטמנט כללית חולון מאפיה,"בתי קפה, מסעדות ופאבים",assumed
+סי בר דוכני מזון,"בתי קפה, מסעדות ופאבים",assumed
+קפיטריה מרפאות חוץ מאיר,"בתי קפה, מסעדות ופאבים",assumed
+CHEVRON.*,דלק וטעינה לרכב,user
+CIRCLE K,דלק וטעינה לרכב,assumed
+CIRCLEK.*,דלק וטעינה לרכב,assumed
+ENI,דלק וטעינה לרכב,assumed
+EUROIL SRL,דלק וטעינה לרכב,assumed
+NESTE EXPRESS SAVONLIN SAVONLINNA FI,דלק וטעינה לרכב,assumed
+PHILLIPS.*,דלק וטעינה לרכב,user
+PV ENI,דלק וטעינה לרכב,assumed
+COPPERFIELD,"הצגות, הופעות וקולנוע",user
+EJK FW M G TEATRO LA BOLOGNA IT,"הצגות, הופעות וקולנוע",assumed
+HOLLYWOOD PANTAGES THE LOS ANGELES US,"הצגות, הופעות וקולנוע",user
+Hung ria Koncert Kft.,"הצגות, הופעות וקולנוע",assumed
+MGM COPPERFIELD.*,"הצגות, הופעות וקולנוע",user
+PHANTOM OF BROADWAY.*,"הצגות, הופעות וקולנוע",user
+SQ \*AL HIRSCHFELD THEA New York US,"הצגות, הופעות וקולנוע",assumed
+TEATRO LA,"הצגות, הופעות וקולנוע",assumed
+THEATRE CIRCLE NEW YORK US,"הצגות, הופעות וקולנוע",assumed
+TM \*CHICAGO,"הצגות, הופעות וקולנוע",user
+The Magic Budapest,אטרקציות,user
+WWW.THEATREROYALWINDSO INTERNET GB,"הצגות, הופעות וקולנוע",assumed
+האופרה הישראלית,"הצגות, הופעות וקולנוע",assumed
+האנסמבל הקולי הישראלי,"הצגות, הופעות וקולנוע",assumed
+טאנג הפקות,"הצגות, הופעות וקולנוע",assumed
+"סוויטיים סינמה סיטי ראשל""צ-מזרחי","הצגות, הופעות וקולנוע",assumed
+עמותת התזמורת הסימפונית ראשון לציון,"הצגות, הופעות וקולנוע",assumed
+שואומן,"הצגות, הופעות וקולנוע",assumed
+תחרות רובינשטיין,"הצגות, הופעות וקולנוע",assumed
+THRIFTY .*,השכרת רכב,assumed
+economybookings.com Marupe LV,השכרת רכב,assumed
+-BALIפאיימי,חופשות וטיולים - שונות,assumed
+ALLA RIVETTA VENEZIA IT,"בתי קפה, מסעדות ופאבים",assumed
+AZWAI,חופשות וטיולים - שונות,assumed
+BG,חופשות וטיולים - שונות,assumed
+BLUMOD MODICA,חופשות וטיולים - שונות,assumed
+BURIAN GYULA,חופשות וטיולים - שונות,assumed
+CHS AIRP FLIGHT READY CHARLESTON US,"בתי קפה, מסעדות ופאבים",assumed
+CORVIN PALACE,חופשות וטיולים - שונות,assumed
+Ddg_Srls,חופשות וטיולים - שונות,assumed
+FH\* SHIFTING REALITIES WWW.SR.ART US,אטרקציות,user
+FOLKLOR KULINARNY TFMF,חופשות וטיולים - שונות,assumed
+FORO BOARIO,חופשות וטיולים - שונות,assumed
+GEORGIAN RETAILL LTD,חופשות וטיולים - שונות,assumed
+JAC DES MARQUES,חופשות וטיולים - שונות,assumed
+KVINNFOLKI VISBY SE,חופשות וטיולים - שונות,assumed
+LA ROBERTO SRL,חופשות וטיולים - שונות,assumed
+LAMPERTI SILVIA,חופשות וטיולים - שונות,assumed
+LES OISEAUX LIVRES,חופשות וטיולים - שונות,assumed
+LICKERS ROK KOK AB TINGSTADE SE,חופשות וטיולים - שונות,assumed
+MASSIMODORETTOVENEZIA VENEZIA IT,חופשות וטיולים - שונות,assumed
+MAZSIHISZ MAGYAR ZSID,חופשות וטיולים - שונות,assumed
+MERCATINO,חופשות וטיולים - שונות,assumed
+MNE\*,חופשות וטיולים - שונות,assumed
+MNE\* Ddg_Srls,חופשות וטיולים - שונות,assumed
+OSAMA NURSERY.*,חופשות וטיולים - שונות,assumed
+PPG\*REFUGELACBLANC CHAMONIX MONT FR,חופשות וטיולים - שונות,assumed
+RAWW,חופשות וטיולים - שונות,assumed
+SISSI UND FRANZ E SAT,חופשות וטיולים - שונות,assumed
+SOSTARE SRL,חופשות וטיולים - שונות,assumed
+SQ \*BALRAM LLC NEW YORK US,חופשות וטיולים - שונות,assumed
+SQ \*PETROPOL INC. BROOKLINE US,חופשות וטיולים - שונות,assumed
+"SZE'PMU""VE'SZETI MU'ZE",חופשות וטיולים - שונות,assumed
+TMBTENT,חופשות וטיולים - שונות,assumed
+TODAY IMPEX VISBY SE,חופשות וטיולים - שונות,assumed
+TST\* ALCHEMY AUSTIN US,"בתי קפה, מסעדות ופאבים",user
+TST\*TRUMP TOWER - ICE New York US,חופשות וטיולים - שונות,assumed
+VIVATK.*,חופשות וטיולים - שונות,assumed
+XOBYAP TEL AVIV IL,חופשות וטיולים - שונות,assumed
+ZZ FENOMENALEN SCI VISBY SE,חופשות וטיולים - שונות,assumed
+איריס פטנטים- מקס ניכיונות,חופשות וטיולים - שונות,assumed
+הפינה של זאביק,חופשות וטיולים - שונות,assumed
+הרנט יזמות והשקעות בעמ,חופשות וטיולים - שונות,assumed
+CHARLESTON CO PARKING CHARLESTON US,חנייה,assumed
+PARKING NW PORTLAND US,חנייה,assumed
+PORTLAND AP CART/CHARG PORTLAND US,חנייה,assumed
+PRINCETON NJ PARKING PRINCETON US,חנייה,assumed
+The Podium Parking,חנייה,assumed
+PLL LOT P,טיסות,assumed
+UNITED 016,טיסות,assumed
+UNITED.COM,טיסות,assumed
+ASPIT FI SCANDICCI,כבישי אגרה,assumed
+SATAP - SATAP,כבישי אגרה,assumed
+CHATEAU DE RIOS,לינה,assumed
+ETT RUM FOR RESANDE CA VISBY SE,לינה,assumed
+Hyatt Place Zurich,לינה,assumed
+RELAI DU LOUVRE,לינה,assumed
+The Hawk Inn,לינה,assumed
+BARNES & NOBLE.*,מוזיקה וקריאה,assumed
+W H SMITH TRAVEL,מוזיקה וקריאה,assumed
+ACME,"מזון, משקאות, סופר ומכולת",assumed
+ACME OLD BRIDGE US,"מזון, משקאות, סופר ומכולת",assumed
+KAASHANDEL SAUER GRONSVELD NL,"מזון, משקאות, סופר ומכולת",assumed
+"MARKET SWEET GOURMET, CHARLESTON US","מזון, משקאות, סופר ומכולת",assumed
+OZON ALMATY KZ,עושים קניות - שונות,user
+TOP SHOTS LIQUOR-WIMBE WIMBERLEY US,"מזון, משקאות, סופר ומכולת",assumed
+WINE GARAGE SP.ZOO SP.,"מזון, משקאות, סופר ומכולת",assumed
+ZABKA.*,"מזון, משקאות, סופר ומכולת",assumed
+הבזאר הרוסי,"מזון, משקאות, סופר ומכולת",assumed
+יקב טורא,"מזון, משקאות, סופר ומכולת",assumed
+KANTONSPOLIZEI,מיסים ושרותי ממשלה,assumed
+PAGOPA,מיסים ושרותי ממשלה,assumed
+PARAFIA PW WNIEBOWZ N,מיסים ושרותי ממשלה,assumed
+POSTCH \*KANTONSPOLIZEI,מיסים ושרותי ממשלה,assumed
+POSTCH \*KANTONSPOLIZEI ST. GALLEN CH,מיסים ושרותי ממשלה,assumed
+TUSCANY WELLNESS & SPA,"מספרה, טיפולי יופי ומוצרי טיפוח",assumed
+sun kiss,"מספרה, טיפולי יופי ומוצרי טיפוח",assumed
+ARLANDA,עושים קניות - שונות,assumed
+ARLANDA T PIER A SE,עושים קניות - שונות,assumed
+ARLANDA T5,עושים קניות - שונות,assumed
+ARSC,עושים קניות - שונות,assumed
+ART FOR ALL,עושים קניות - שונות,assumed
+BALTONA,עושים קניות - שונות,assumed
+CALATA,עושים קניות - שונות,assumed
+CPI\*MAVE & MARKET,עושים קניות - שונות,assumed
+DUFRITAL,עושים קניות - שונות,assumed
+DUFRITAL MXP T,עושים קניות - שונות,assumed
+DUTY FREE STORE BY N,עושים קניות - שונות,assumed
+FH\* HOPSCOTCH PDX LETSHOPSCOTCH US,עושים קניות - שונות,assumed
+HELOPAY\*HELLOPAY KER.,עושים קניות - שונות,assumed
+HEMA,עושים קניות - שונות,assumed
+HEMA DUSSELDORF,עושים קניות - שונות,assumed
+HERZL AJANDEKBOLT,עושים קניות - שונות,assumed
+MAVE & MARKET,עושים קניות - שונות,assumed
+MIRAGE ESSENTIALS,עושים קניות - שונות,assumed
+NYX\*ABSERVICIOSSELECTA MADRID ES,עושים קניות - שונות,assumed
+OLD GEORGE MALL,עושים קניות - שונות,assumed
+PHZ BALTONA.*,עושים קניות - שונות,assumed
+PYLONES STPAUL,עושים קניות - שונות,assumed
+SEPAY B.V. DEN HAAG NL,עושים קניות - שונות,assumed
+SIMPLEP\*E&WESSENTIALS,עושים קניות - שונות,assumed
+STAY,עושים קניות - שונות,assumed
+WC Billiard Room Shop,עושים קניות - שונות,assumed
+life changing products,עושים קניות - שונות,assumed
+ssik nus,עושים קניות - שונות,assumed
+א.ר.א גולדה מבשרת,עושים קניות - שונות,assumed
+איגור ליטבאק,עושים קניות - שונות,assumed
+אלון אינטרייד מגל מערב,עושים קניות - שונות,assumed
+הגשמת חלום,עושים קניות - שונות,assumed
+הייטק סטור- ס.א.ל טיטניום,עושים קניות - שונות,assumed
+הקרן לעזרה הדדית לישובי ה,עושים קניות - שונות,assumed
+"נקסטק ג.ל.ל.א בע""מ",עושים קניות - שונות,assumed
+סנטרל פארק - בן זנו,עושים קניות - שונות,assumed
+ערב,עושים קניות - שונות,assumed
+פופסי POPSI,עושים קניות - שונות,assumed
+E-Play Stock,"צעצועים, משחקים ודמי כיס",assumed
+WL \*STEAM PURCHASE,"צעצועים, משחקים ודמי כיס",assumed
+משחקיית באטלר,"צעצועים, משחקים ודמי כיס",assumed
+BKK Budapest Pay&Go,תחבורה ציבורית,assumed
+BlaBlaCar-Bus Paris FR,תחבורה ציבורית,assumed
+FLIXBUS.COM Berlin DE,תחבורה ציבורית,assumed
+TRIBUTI - PARCHIMETRO,תחבורה ציבורית,assumed
+www.bilet.intercity.pl Warszawa PL,תחבורה ציבורית,assumed
+Taxis? on Booking,תחבורה ציבורית,user
+"(?:Rental\s+Cars?|Cars?)\s+on\s+Booking",השכרת רכב,user
+RC\*\s*BOOKING,השכרת רכב,user
+BKG\*(?:BOOKING|HOTEL),לינה,user
+"(?:Hotel|Partners)\s+(?:on|at)\s+Booking",לינה,user
+"PAYPAL\s+\*BOOKING\s+(?:HOTEL|BOOKIN)",לינה,user
+BOOKING\.COM,לינה,user
+"PAYPAL\s+\*UBER",תחבורה ציבורית,user
+"UBER\s+(?:\*?(?:TRIP|ONE\s+MEMBERSHIP)|B\.V\.)",תחבורה ציבורית,user

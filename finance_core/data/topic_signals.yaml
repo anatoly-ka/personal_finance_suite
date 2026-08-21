@@ -1,0 +1,77 @@
+# Shared heuristic parameters for finance-topic (Skill 2) recipes.
+#
+# Same spirit as category_map.yaml / merchant_categories.csv: ships with the
+# skill, edited here (or in a per-project copy) to tune matching without
+# touching code. Reading this file needs PyYAML; if it is not installed, or
+# this file is missing, finance-topic falls back to the identical defaults
+# baked into finance_core/topics.py, so the skill still works with zero
+# extra packages installed.
+#
+# All lists match against a transaction's `category` (exact value, the ענף
+# column) or against normalized `description`/`detail` text (case-insensitive
+# substring, whitespace collapsed) - see README.md "How matching works".
+
+# Categories (ענף) that represent booking a trip ahead of time.
+pre_purchase_categories:
+  - "טיסות"            # flights
+  - "לינה"              # lodging
+  - "השכרת רכב"         # car rental
+  - "אטרקציות"          # attractions/tickets
+  - "פנאי, תרבות והעשרה - שונות"   # leisure/culture/enrichment - misc
+  - "הצגות, הופעות וקולנוע"        # shows, performances, cinema
+
+# Subset of pre_purchase_categories long-lead enough to search further back
+# (see the propose --extended-lookback-days flag, default 120 days) -
+# flights and show/attraction tickets are often bought months ahead; hotels
+# and car rentals usually aren't, so they are NOT in this subset (they still
+# use the normal lookback_days window above). A match found only in the
+# extended window is always flagged pending_review, never auto-confirmed,
+# even if a destination/region hint matches - that far ahead a hit is too
+# easily coincidental (e.g. tickets for a different future trip).
+extended_lookback_categories:
+  - "טיסות"
+  - "אטרקציות"
+  - "פנאי, תרבות והעשרה - שונות"
+  - "הצגות, הופעות וקולנוע"
+
+# Categories (ענף) that represent taking out cash / foreign currency, used to
+# detect "cash withdrawal at the airport / during the trip" signals.
+cash_withdrawal_categories:
+  - "העברת מזומן"       # ATM / branch cash withdrawal
+  - "העברת מט\"ח"       # FX purchase - incl. airport currency-exchange desks
+                        # (e.g. Bank Hapoalim @ Ben-Gurion, see description
+                        # keywords below) right before flying abroad
+
+# Free-text keywords (checked against description + detail) that indicate a
+# cash/FX withdrawal even when the category above doesn't (e.g. some banks
+# label ATM withdrawals under a generic transfer category).
+cash_withdrawal_keywords:
+  - "כספומט"            # ATM (Hebrew)
+  - "ATM"
+  - "סניפומט"           # branch ATM
+  - "משיכת מזומן"       # cash withdrawal
+  - "הפועלים"           # Bank Hapoalim - its Ben-Gurion airport currency
+                        # desk shows up as "בנק הפועלים נתב\"ג- רכישות"
+
+# Categories (ענף) checked in the few days AFTER a trip ends (e.g. toll-road
+# billing that lags the actual drive by days/weeks).
+tail_categories:
+  - "כבישי אגרה"        # toll roads
+  - "השכרת רכב"         # car rental (late deposit/fee settlement)
+
+# Online-retailer keywords that show up during trips abroad but are usually
+# unrelated household shopping, not trip expenses -> flagged pending_review
+# instead of auto-confirmed.
+ambiguous_abroad_keywords:
+  - "Amazon"
+  - "AMZ*"               # Amazon's own card-statement prefix, e.g. "AMZ*d2ijzv0fv"
+  - "AliExpress"
+  - "eBay"
+  - "Alibaba"
+  - "iHerb"
+
+# Same idea for local trips inside Israel (pharmacy/telehealth delivery etc.
+# that isn't tied to being away from home).
+ambiguous_local_keywords:
+  - "TELEPHARMA"
+  - "פארם אונליין"

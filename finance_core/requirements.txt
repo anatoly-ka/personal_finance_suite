@@ -1,0 +1,20 @@
+# finance_core dependencies.
+#
+# Skill 1 (finance-unify) and Skill 2 (finance-topic) need NOTHING beyond the
+# Python standard library. finance-unify reads .xlsx (zip+XML) and writes CSV;
+# finance-topic reads the ledger CSV and writes its topic spec as JSON (not
+# YAML), precisely so it stays dependency-free too.
+#
+# The packages below are used only by the analysis skill (Skill 3), which will
+# install them automatically if/when the user requests chart output:
+#   openpyxl  -> write .xlsx with native charts
+#   pyyaml    -> read category_map.yaml / finance.config.yaml / topic_signals.yaml
+#   pandas    -> tabular aggregation for analysis
+#
+# You do NOT need to install these to run finance-unify or finance-topic.
+# (PyYAML is used opportunistically if already installed and you choose to
+# edit topic_signals.yaml/category_map.yaml; both skills fall back to
+# built-in defaults otherwise.)
+openpyxl>=3.1
+pyyaml>=6.0
+pandas>=2.0
