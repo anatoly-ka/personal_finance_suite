@@ -19,7 +19,13 @@ File format (UTF-8 CSV, `<skill>/merchant_categories.csv`):
   A key is tried first as a plain substring; if that doesn't match and the key
   contains regex syntax (e.g. `FLORIST ALMATY.*`), it is also tried as a
   case-insensitive regular expression (`re.search`) against the description.
-  When several keys match, **file order decides**: the first matching row
+- Optional amount bounds (columns 4 and 5): `min_ils,max_ils` - inclusive
+  bounds on the row's ABSOLUTE ILS amount. Empty bound = unbounded on that
+  side (a trailing comma gives `300,` = "300 ILS or more"). A bounded entry
+  only matches rows within its range, so the same merchant can map to two
+  categories by size (e.g. life-insurance premiums of 300 ILS or more are
+  mortgage insurance, smaller ones are health/life insurance). When several
+  keys match, **file order decides**: the first matching row
   (top to bottom) wins and no later row is even checked. So a narrower
   exception must be placed *above* the broader rule it should override (e.g.
   `חניון`/`חניונים` -> `חנייה` are near the top so they win over a later,
@@ -53,14 +59,17 @@ def _normalize_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
-def load(path: str | None) -> list[tuple[str, str, str, str, "re.Pattern | None"]]:
-    """Return entries as (key_norm, merchant, category, source, regex), in the
-    same order they appear in the file - the FIRST matching entry wins (see
-    `match()`), so file order is significant: put an entry that must take
-    precedence over a broader/later one earlier in the file. `key_norm` is the
-    merchant text lowercased with whitespace collapsed; `regex` is a precompiled
-    case-insensitive pattern for `key_norm` when it compiles, else None."""
-    entries: list[tuple[str, str, str, str, "re.Pattern | None"]] = []
+def load(path: str | None) -> list[tuple]:
+    """Return entries as (key_norm, merchant, category, source, regex,
+    min_ils, max_ils), in the same order they appear in the file - the FIRST
+    matching entry wins (see `match()`), so file order is significant: put an
+    entry that must take precedence over a broader/later one earlier in the
+    file. `key_norm` is the merchant text lowercased with whitespace
+    collapsed; `regex` is a precompiled case-insensitive pattern for
+    `key_norm` when it compiles, else None. `min_ils`/`max_ils` are inclusive
+    bounds on the absolute ILS amount (None = unbounded), parsed from the
+    optional 4th/5th CSV columns."""
+    entries: list[tuple] = []
     if not path or not os.path.exists(path):
         return entries
     with open(path, "r", encoding="utf-8-sig", newline="") as fh:
@@ -82,29 +91,64 @@ def load(path: str | None) -> list[tuple[str, str, str, str, "re.Pattern | None"
                     pattern = re.compile(key_norm, re.IGNORECASE)
                 except re.error:
                     pattern = None
-                entries.append((key_norm, merchant, category, source, pattern))
+                lo = _parse_bound(row[3] if len(row) > 3 else "")
+                hi = _parse_bound(row[4] if len(row) > 4 else "")
+                entries.append((key_norm, merchant, category, source, pattern, lo, hi))
     return entries
 
 
-def match(description: str, entries: list[tuple[str, str, str, str, "re.Pattern | None"]]):
+def _parse_bound(text: str) -> float | None:
+    t = (text or "").strip()
+    if not t:
+        return None
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def match(description: str, entries: list[tuple], amount_ils: float | int | str | None = None):
     """Return (category, source, merchant) for the first matching key in file
-    order, or None."""
+    order, or None. Entries with amount bounds match only when `amount_ils`
+    is given and its absolute value lies within [min_ils, max_ils]; a bounded
+    entry is skipped entirely when no amount is available."""
     d = _normalize_ws(description).lower()
     if not d:
         return None
-    for key_norm, merchant, category, source, pattern in entries:
+    try:
+        amt = abs(float(amount_ils)) if amount_ils not in (None, "") else None
+    except (TypeError, ValueError):
+        amt = None
+    for key_norm, merchant, category, source, pattern, lo, hi in entries:
         if not key_norm:
             continue
+        if lo is not None or hi is not None:
+            if amt is None:
+                continue
+            if lo is not None and amt < lo:
+                continue
+            if hi is not None and amt > hi:
+                continue
         if key_norm in d or (pattern is not None and pattern.search(d)):
             return category, source, merchant
     return None
 
 
-def covers(description: str, entries: list[tuple[str, str, str, str, "re.Pattern | None"]]) -> bool:
-    return match(description, entries) is not None
+def covers(description: str, entries: list[tuple]) -> bool:
+    """True when any map key (regardless of its amount bounds) matches the
+    description - used to decide whether a merchant is already in the map."""
+    d = _normalize_ws(description).lower()
+    if not d:
+        return False
+    for key_norm, _m, _c, _s, pattern, _lo, _hi in entries:
+        if not key_norm:
+            continue
+        if key_norm in d or (pattern is not None and pattern.search(d)):
+            return True
+    return False
 
 
-def apply(records: list[dict], entries: list[tuple[str, str, str, str, "re.Pattern | None"]]) -> int:
+def apply(records: list[dict], entries: list[tuple]) -> int:
     """Apply the shared map to every matching row, overriding MyFinanda's own
     category where it differs (every map entry has already been reviewed).
     `user` entries flag `merchant_category`; `assumed` entries flag
@@ -118,7 +162,7 @@ def apply(records: list[dict], entries: list[tuple[str, str, str, str, "re.Patte
     for r in records:
         if "manual_category" in r.get("flags", []):
             continue
-        hit = match(r.get("description", ""), entries)
+        hit = match(r.get("description", ""), entries, r.get("amount_ils"))
         if not hit:
             continue
         category, source, merchant = hit
