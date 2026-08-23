@@ -95,6 +95,138 @@ def _reclassify_round_cc_transfers(records, stats) -> None:
             stats["round_cc_reclassified"] += 1
 
 
+def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[list[dict], dict]:
+    """Cross-boundary reconciliation after an incremental merge.
+
+    Within one export file, `reconcile()` sees both sides of every internal
+    movement. Across an incremental merge the two sides often arrive in
+    *different* runs - e.g. a partial export carries the bank's cumulative
+    card charge while the card's own transactions were loaded months earlier
+    (or vice versa). This pass re-runs the same matching rules scoped to rows
+    that crossed the boundary, hunting partners in the WHOLE merged ledger:
+
+    1. Cumulative CC charges: candidates are freshly appended charge rows plus
+       legacy rows still flagged `unmatched_cc` (a retry is harmless - the
+       ledger never stores successfully-reconciled charges, since those are
+       dropped, so any stored/appended charge row is genuinely unsettled).
+       Card groups already carrying a `cc:` link keep it; only empty links are
+       filled with the settling charge's id.
+    2. Mirrored transfers: annihilated pairs never survive in the ledger (both
+       legs are dropped), so every stored internal-transfer leg is genuinely
+       unmatched and may pair with a newly appended counterpart. At least one
+       leg of every pair must be appended, so pure history is never touched.
+
+    Returns (kept_records, stats)."""
+    stats = {"cc_replaced": 0, "transfers_annihilated": 0}
+    appended_ids = {id(r) for r in appended}
+    is_appended = lambda i: id(records[i]) in appended_ids
+    dropped: set[int] = set()
+
+    # ------------------------------------------------ 1) cumulative CC charges
+    groups: dict[tuple[str, str], list[int]] = defaultdict(list)
+    group_sum: dict[tuple[str, str], float] = defaultdict(float)
+    group_serial: dict[tuple[str, str], float] = {}
+    card_digits: dict[str, str] = {}
+    for i, r in enumerate(records):
+        if r.get("source_type") != "credit-card":
+            continue
+        sk = r["source_key"]
+        key = (sk, r.get("billing_date", ""))
+        groups[key].append(i)
+        if r.get("amount_ils") is not None:
+            group_sum[key] += r["amount_ils"]
+        if r.get("billing_serial") is not None:
+            group_serial[key] = r["billing_serial"]
+        card_digits.setdefault(sk, re.sub(r"\D", "", sk))
+
+    charge_idxs = [
+        i for i, r in enumerate(records)
+        if r.get("source_type") in ("bank", "fx")
+        and (r.get("category") or "").strip() == columns.CC_CHARGE_CATEGORY
+        and (is_appended(i) or "unmatched_cc" in (r.get("flags") or []))
+    ]
+    # appended charges first: freshest information wins a contested group
+    charge_idxs.sort(key=lambda i: not is_appended(i))
+
+    consumed: set[tuple[str, str]] = set()
+    for i in charge_idxs:
+        r = records[i]
+        charge = r.get("amount_ils")
+        if charge is None:
+            continue  # stays flagged unmatched_cc from the build
+        ref_digits = re.sub(r"\D", "", r.get("reference", "") or "")
+        desc_digits = re.sub(r"\D", "", r.get("description", "") or "")
+        cand_keys = [
+            sk for sk, d in card_digits.items()
+            if len(d) >= 3 and ((ref_digits and ref_digits.endswith(d)) or d in desc_digits)
+        ]
+        match_key = _find_cc_group(
+            charge, r.get("billing_date", ""), r.get("billing_serial"),
+            cand_keys, group_sum, group_serial, consumed,
+        )
+        if match_key is None:
+            continue  # stays flagged unmatched_cc
+        consumed.add(match_key)
+        link = f"cc:{r['id']}"
+        for idx in groups[match_key]:
+            if not records[idx].get("link_group"):
+                records[idx]["link_group"] = link
+        dropped.add(i)
+        stats["cc_replaced"] += 1
+
+    # -------------------------------------------------- 2) mirrored transfers
+    eligible = [
+        i for i, r in enumerate(records)
+        if i not in dropped
+        and (r.get("category") or "").strip() in columns.INTERNAL_TRANSFER_CATEGORIES
+        and r.get("amount_ils") is not None and round(abs(r["amount_ils"]), 2) != 0
+    ]
+    buckets: dict[float, list[int]] = defaultdict(list)
+    for i in eligible:
+        buckets[round(abs(records[i]["amount_ils"]), 2)].append(i)
+
+    matched: set[int] = set()
+    counter = 0
+    for ni in [i for i in eligible if is_appended(i)]:
+        if ni in matched:
+            continue
+        nr = records[ni]
+        same_amt = buckets.get(round(abs(nr["amount_ils"]), 2), [])
+        opposites = [i for i in same_amt
+                     if records[i]["amount_ils"] > 0] if nr["amount_ils"] < 0 else \
+                    [i for i in same_amt
+                     if records[i]["amount_ils"] < 0]
+        best = None  # (score, pi)
+        for pi in opposites:
+            if pi in matched or pi == ni:
+                continue
+            pr = records[pi]
+            gap = _date_gap(nr, pr)
+            if gap > _XFER_DATE_TOL_DAYS:
+                continue
+            shared_ref = bool(nr.get("reference")) and nr.get("reference") == pr.get("reference")
+            diff_account = nr.get("source_name") != pr.get("source_name")
+            if not (shared_ref or diff_account):
+                continue  # not an obvious mirror
+            score = (0 if shared_ref else 1, 0 if diff_account else 1, gap)
+            if best is None or score < best[0]:
+                best = (score, pi)
+        if best is not None:
+            pi = best[1]
+            counter += 1
+            link = f"xfer:{counter}"
+            nr["link_group"] = link
+            records[pi]["link_group"] = link
+            matched.add(ni)
+            matched.add(pi)
+            dropped.add(ni)
+            dropped.add(pi)
+            stats["transfers_annihilated"] += 1
+
+    kept = [r for i, r in enumerate(records) if i not in dropped]
+    return kept, stats
+
+
 # ------------------------------------------------------------------- CC charges
 
 def _replace_cc_charges(records, dropped, stats) -> None:
@@ -208,8 +340,6 @@ def _find_cc_group(charge, bill_date, bill_serial, cand_keys,
                 return near[0][1]
     return None
 
-
-# ------------------------------------------------------------ mirrored transfers
 
 def _annihilate_mirrors(records, dropped, stats) -> None:
     buckets: dict[float, list[int]] = defaultdict(list)

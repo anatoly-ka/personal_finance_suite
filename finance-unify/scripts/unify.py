@@ -226,25 +226,166 @@ def _num(value):
         return None
 
 
-def merge_incremental(current: list[dict], existing: list[dict]) -> list[dict]:
-    by_id = {r["id"]: r for r in existing}
+# Fields a newer export may legitimately CORRECT on a transaction that an older
+# export already reported. MyFinanda exports are point-in-time snapshots: a
+# purchase made after the previous cut-off ships with a PROVISIONAL
+# תאריך חיוב (usually equal to the transaction date) until the next billing
+# cycle is assigned; the following export then reports the real cycle date.
+# The content fingerprint deliberately ignores billing dates so both snapshots
+# still recognize the row - so a matched stored row must ADOPT the correction,
+# otherwise it stays in the wrong credit-card cycle group and silently breaks
+# cumulative-charge settlement (spurious `unmatched_cc`). Manual edits (category,
+# reference, flags - via corrections.csv) and identity fields (id, link_group)
+# are never touched here.
+_REFRESHABLE_FIELDS = (
+    "billing_serial",      # internal XLS serial behind billing_date
+    "billing_date",
+    "billing_month",
+    "time",
+    "detail",              # פרטים נוספים + הערה שלי as exported
+    "merchant_country",
+)
+
+
+def _values_equal(a, b) -> bool:
+    if isinstance(a, float) or isinstance(b, float):
+        try:
+            return a is not None and b is not None and abs(float(a) - float(b)) <= 1e-9
+        except (TypeError, ValueError):
+            return False
+    return str(a) == str(b)
+
+
+def _refresh_corrected_fields(old: dict, fresh: dict) -> int:
+    """Adopt export-corrected values on a matched stored row (see
+    _REFRESHABLE_FIELDS). Never blanks a stored value out. Returns the number
+    of fields actually changed."""
+    changed = 0
+    for field in _REFRESHABLE_FIELDS:
+        new_v = fresh.get(field)
+        if new_v in (None, ""):
+            continue
+        old_v = old.get(field)
+        if not _values_equal(new_v, old_v):
+            old[field] = new_v
+            changed += 1
+    return changed
+
+
+_ID_RE = re.compile(r"^(?P<prefix>.+)-(?P<seq>\d+)$")
+
+
+def _fingerprint(rec) -> tuple:
+    """Content fingerprint that identifies a transaction across exports:
+    source sheet + date + description + original-currency sum.
+
+    Row ids are per-sheet sequence numbers, unique only within one export
+    file, so they cannot match rows across exports with different coverage
+    windows. The sum is compared in the ORIGINAL currency (falling back to
+    ILS when absent) so the fingerprint does not depend on whether an FX rate
+    was available at build time."""
+    desc = " ".join(str(rec.get("description") or "").split()).lower()
+    cur = str(rec.get("currency_orig") or "").strip().upper()
+    amt = rec.get("amount_orig")
+    if amt in (None, ""):
+        amt = rec.get("amount_ils")
+    try:
+        amt = round(float(amt), 2)
+    except (TypeError, ValueError):
+        amt = None
+    return (
+        str(rec.get("source_name") or "").strip(),
+        str(rec.get("date_iso") or "").strip(),
+        desc,
+        cur,
+        amt,
+    )
+
+
+def _next_id(rid: str, used_ids: set, prefix_max: dict) -> str:
+    """Fresh unique id on the same prefix as `rid` ("X-" when the id has no
+    recognizable prefix-sequence shape)."""
+    m = _ID_RE.match(rid or "")
+    prefix = m.group("prefix") if m else "X"
+    nxt = prefix_max.get(prefix, 0) + 1
+    new_id = f"{prefix}-{nxt:06d}"
+    while new_id in used_ids:  # paranoid guard against external ids
+        nxt += 1
+        new_id = f"{prefix}-{nxt:06d}"
+    prefix_max[prefix] = nxt
+    return new_id
+
+
+def merge_incremental(current: list[dict], existing: list[dict]):
+    """Merge freshly built records into an existing ledger.
+
+    Matching is by content fingerprint (see `_fingerprint`) with multiset
+    semantics: a fresh row counts as already-in-the-ledger while more fresh
+    rows share its fingerprint than remain unconsumed ledger rows, so
+    legitimate same-day duplicates survive. Matched rows keep their stored
+    ledger row (stable ids, manual categories, refund links), with two
+    exceptions: export-corrected scheduling facts are adopted from the newer
+    export (a provisional billing date that became the real credit-card cycle
+    date - see `_REFRESHABLE_FIELDS`), and a still-unclassified stored category
+    adopts the fresh export's real one. Unmatched fresh rows are appended; when
+    such a row's export id collides with any known id it is reassigned a fresh
+    unique sequence number on the same prefix (ids are cosmetic once rows are
+    matched by content).
+
+    Returns (merged_records, stats_dict)."""
+    pending: dict[tuple, list[dict]] = defaultdict(list)
+    for old in existing:
+        pending[_fingerprint(old)].append(old)
+
+    used_ids = {r["id"] for r in existing if r.get("id")}
+    prefix_max: dict[str, int] = {}
+    for rid in used_ids:
+        m = _ID_RE.match(rid)
+        if m:
+            prefix_max[m.group("prefix")] = max(prefix_max.get(m.group("prefix"), 0), int(m.group("seq")))
+
+    stats = {"kept": 0, "appended": 0, "renumbered": 0, "category_rescued": 0,
+             "refreshed_rows": 0, "fields_refreshed": 0,
+             "appended_rows": []}
+    merged = list(existing)
     for rec in current:
-        old = by_id.get(rec["id"])
-        if old is not None:
-            # Fresh export wins, but keep a real/manual category if the fresh row
-            # is still unclassified.
-            new_cat = (rec.get("category") or "").strip()
+        fp = _fingerprint(rec)
+        queue = pending.get(fp)
+        if queue:
+            old = queue.pop(0)
+            stats["kept"] += 1
+            # A newer snapshot may correct export-reported facts on a row we
+            # already store (most importantly a provisional billing date that
+            # became the real credit-card cycle date). Adopt those; everything
+            # else about the stored row (id, manual edits, links) is kept.
+            n = _refresh_corrected_fields(old, rec)
+            if n:
+                stats["refreshed_rows"] += 1
+                stats["fields_refreshed"] += n
             old_cat = (old.get("category") or "").strip()
-            if (not new_cat or new_cat == columns.UNCLASSIFIED) and old_cat and old_cat != columns.UNCLASSIFIED:
-                rec["category"] = old_cat
-                if "unmatched_category" in rec.get("flags", []):
-                    rec["flags"].remove("unmatched_category")
-                if "manual_category" in old.get("flags", []):
-                    schema.add_flag(rec, "manual_category")
-                else:
-                    schema.add_flag(rec, "assumed_category")
-        by_id[rec["id"]] = rec
-    return list(by_id.values())
+            new_cat = (rec.get("category") or "").strip()
+            if (not old_cat or old_cat == columns.UNCLASSIFIED) and new_cat and new_cat != columns.UNCLASSIFIED:
+                old["category"] = new_cat
+                if "unmatched_category" in old.get("flags", []):
+                    old["flags"].remove("unmatched_category")
+                schema.add_flag(old, "assumed_category")
+                old["explanation"] = "Category refreshed from a newer export."
+                stats["category_rescued"] += 1
+            continue
+        # genuinely new transaction -> append it
+        rid = rec.get("id") or ""
+        if rid in used_ids:
+            rec["id"] = _next_id(rid, used_ids, prefix_max)
+            stats["renumbered"] += 1
+        used_ids.add(rec["id"])
+        m = _ID_RE.match(rec["id"])
+        if m:
+            prefix = m.group("prefix")
+            prefix_max[prefix] = max(prefix_max.get(prefix, 0), int(m.group("seq")))
+        merged.append(rec)
+        stats["appended_rows"].append(rec)
+        stats["appended"] += 1
+    return merged, stats
 
 
 # -------------------------------------------------------------------- ordering
@@ -309,8 +450,21 @@ def main() -> int:
     if args.incremental:
         existing = load_existing(out_path)
         if existing:
-            records = merge_incremental(records, existing)
-            print(f"[info] incremental: merged with {len(existing)} existing rows.")
+            records, inc_stats = merge_incremental(records, existing)
+            print(f"[info] incremental: {len(existing)} existing rows; "
+                  f"{inc_stats['kept']} matched (kept as-is), "
+                  f"{inc_stats['appended']} new appended "
+                  f"[{inc_stats['renumbered']} id reassign(s), "
+                  f"{inc_stats['category_rescued']} category refresh(es)].")
+            if inc_stats["fields_refreshed"]:
+                print(f"[info] incremental: {inc_stats['refreshed_rows']} stored row(s) "
+                      f"adopted {inc_stats['fields_refreshed']} corrected value(s) from the "
+                      f"newer export (e.g. a billing date finalized after the previous snapshot).")
+            records, xstats = reconcile.reconcile_incremental(
+                records, inc_stats["appended_rows"])
+            print(f"[info] cross-boundary reconciliation: "
+                  f"{xstats['cc_replaced']} cumulative CC charge(s) resolved, "
+                  f"{xstats['transfers_annihilated']} mirror transfer pair(s) annihilated.")
 
     # Shared merchant->category map: fill rows MyFinanda left unclassified.
     merchant_map_path = resolve(args.merchant_map, "merchant_map", config, _MERCHANT_MAP)

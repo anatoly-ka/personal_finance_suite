@@ -101,8 +101,27 @@ command-line argument > `finance.config.yaml` > the defaults above.
 ## Modes
 - **Standalone**: build a fresh ledger from a source file.
 - **Incremental** (`--incremental`): extend an existing `data/ledger.csv` with a
-  newer export, preserving existing IDs and inferring categories for new
-  uncategorized rows from similar past records.
+  newer export. Rows are matched by a content fingerprint — source sheet +
+  date + description + original-currency sum (multiset semantics, so genuine
+  same-day duplicates survive). Matched rows keep their stored ledger row
+  (stable IDs, manual categories, refund links), with two exceptions: a
+  still-unclassified stored category adopts the fresh export's real one, and
+  export-*corrected* scheduling facts are adopted from the newer snapshot —
+  most importantly `billing_date` (`תאריך חיוב`). A purchase made just after an
+  export is first reported with a provisional billing date (usually equal to the
+  transaction date) that MyFinanda finalizes into the real cycle date only in a
+  later export; without adopting the correction the row stays in the wrong
+  credit-card cycle group and its monthly cumulative charge can never settle
+  (spurious `unmatched_cc`). Unmatched rows are
+  appended; if an appended row's export ID collides with any existing ID it is
+  reassigned a fresh unique sequence number on the same prefix. This makes
+  partial-period exports safe: their per-sheet row counters cannot corrupt
+  historical rows. A follow-up cross-boundary pass re-runs reconciliation
+  scoped to rows that crossed the boundary: cumulative CC charges whose card
+  rows live on the other side are settled and dropped (never double-counted
+  against their card transactions), and mirrored transfer pairs spanning runs
+  are annihilated. At least one leg of every resolved pair always comes from
+  the new export, so pure history is never rewritten.
 
 ## Reconciliation algorithm
 

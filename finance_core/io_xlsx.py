@@ -158,7 +158,13 @@ def _fmt(value: Any) -> str:
     if isinstance(value, float):
         if value == int(value):
             return str(int(value))
-        return f"{value:.6g}"
+        # .10g keeps every 2-decimal money amount exact at any realistic
+        # magnitude (.6g corrupted e.g. 18977.16 -> 18977.2) and preserves
+        # FX-rate precision better than before.
+        text = f"{value:.10g}"
+        if "e" in text or "E" in text:  # absurd magnitudes: fixed-point fallback
+            text = f"{value:.2f}".rstrip("0").rstrip(".")
+        return text
     return str(value)
 
 

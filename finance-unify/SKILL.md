@@ -38,7 +38,13 @@ python scripts/unify.py --project <PROJECT_DIR> --set "C3069-000123:category=×ž×
 - `--out PATH`      ledger CSV (default: `data/ledger.csv`)
 - `--flags-out PATH` flag report (default: `data/ledger.flags.csv`)
 - `--corrections PATH` corrections CSV (default: `data/corrections.csv`)
-- `--incremental`   merge into an existing ledger, preserving IDs
+- `--incremental`   merge into an existing ledger by content fingerprint
+  (source+date+description+sum, multiset); matched rows keep their stored IDs
+  (adopting only facts the newer export corrects, e.g. a provisional billing date
+  finalized into the real credit-card cycle date), brand-new rows are appended
+  (export-ID collisions get fresh unique IDs); afterwards a cross-boundary pass
+  settles cumulative CC charges and mirrored transfers whose two legs arrived in
+  different runs
 - `--xlsx`          also write `data/ledger.xlsx` (needs `openpyxl`)
 - `--set "id:field=value"` add a correction (repeatable)
 - `--merchant-map PATH` shared merchant->category CSV (default: the skill's
