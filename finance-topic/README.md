@@ -210,6 +210,9 @@ cash_withdrawal_keywords:
 ambiguous_abroad_keywords:
   - "Amazon"
   - "AMZ*"
+never_trip_keywords:        # Automatically ignored during trip scans
+  - "NETFLIX"
+  - "PATREON"
 extended_lookback_categories:   # gets the ~120-day (not just ~45-day) pre-trip search
   - "טיסות"
   - "אטרקציות"

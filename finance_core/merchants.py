@@ -1,4 +1,4 @@
-"""Shared merchant -> category map (a skill-level file), auto-applied to every
+﻿"""Shared merchant -> category map (a skill-level file), auto-applied to every
 matching row - including ones MyFinanda already put a (possibly wrong or
 inconsistent) category on.
 
@@ -93,9 +93,13 @@ def load(path: str | None) -> list[tuple]:
                     pattern = None
                 lo = _parse_bound(row[3] if len(row) > 3 else "")
                 hi = _parse_bound(row[4] if len(row) > 4 else "")
-                entries.append((key_norm, merchant, category, source, pattern, lo, hi))
+                
+                # Capture the 6th column as search_field
+                search_field = (row[5].strip() if len(row) > 5 else "") or "description"
+                
+                # Add search_field to the tuple
+                entries.append((key_norm, merchant, category, source, pattern, lo, hi, search_field))
     return entries
-
 
 def _parse_bound(text: str) -> float | None:
     t = (text or "").strip()
@@ -107,19 +111,16 @@ def _parse_bound(text: str) -> float | None:
         return None
 
 
-def match(description: str, entries: list[tuple], amount_ils: float | int | str | None = None):
+def match(record: dict, entries: list[tuple], amount_ils: float | int | str | None = None):
     """Return (category, source, merchant) for the first matching key in file
     order, or None. Entries with amount bounds match only when `amount_ils`
     is given and its absolute value lies within [min_ils, max_ils]; a bounded
     entry is skipped entirely when no amount is available."""
-    d = _normalize_ws(description).lower()
-    if not d:
-        return None
     try:
         amt = abs(float(amount_ils)) if amount_ils not in (None, "") else None
     except (TypeError, ValueError):
         amt = None
-    for key_norm, merchant, category, source, pattern, lo, hi in entries:
+    for key_norm, merchant, category, source, pattern, lo, hi, search_field in entries:
         if not key_norm:
             continue
         if lo is not None or hi is not None:
@@ -129,19 +130,24 @@ def match(description: str, entries: list[tuple], amount_ils: float | int | str 
                 continue
             if hi is not None and amt > hi:
                 continue
+
+        # Select the specific field requested by the rule
+        text = record.get(search_field, "")
+        d = _normalize_ws(text).lower()
+        if not d:
+            continue
+
         if key_norm in d or (pattern is not None and pattern.search(d)):
             return category, source, merchant
     return None
 
-
-def covers(description: str, entries: list[tuple]) -> bool:
-    """True when any map key (regardless of its amount bounds) matches the
-    description - used to decide whether a merchant is already in the map."""
-    d = _normalize_ws(description).lower()
-    if not d:
-        return False
-    for key_norm, _m, _c, _s, pattern, _lo, _hi in entries:
+def covers(record: dict, entries: list[tuple]) -> bool:
+    for key_norm, _m, _c, _s, pattern, _lo, _hi, search_field in entries:
         if not key_norm:
+            continue
+        text = record.get(search_field, "")
+        d = _normalize_ws(text).lower()
+        if not d:
             continue
         if key_norm in d or (pattern is not None and pattern.search(d)):
             return True
@@ -162,7 +168,7 @@ def apply(records: list[dict], entries: list[tuple]) -> int:
     for r in records:
         if "manual_category" in r.get("flags", []):
             continue
-        hit = match(r.get("description", ""), entries, r.get("amount_ils"))
+        hit = match(r, entries, r.get("amount_ils"))
         if not hit:
             continue
         category, source, merchant = hit

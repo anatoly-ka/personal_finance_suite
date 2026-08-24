@@ -280,9 +280,14 @@ GALLERIA BORGHESE ARTE,אטרקציות,assumed
 ```
 
 - **Matching**: case-insensitive, with runs of whitespace collapsed to one
-  space on both the merchant key and the row's `description`. A key is tried
-  first as a plain substring; if that misses and the key contains regex syntax
-  (e.g. `FLORIST ALMATY.*`), it is also tried as a regular expression.
+  space on both the merchant key and the row's `description` (or the field
+  specified in the 6th column). A key is tried first as a plain substring;
+  if that doesn't match and the key contains regex syntax (e.g.
+  `FLORIST ALMATY.*`), it is also tried as a regular expression.
+- **Specific Field Matching**: By default, rules match against the
+  `description` field. You can target a different field (e.g., `detail`) by
+  adding it as an optional 6th column in the CSV:
+  `"אלכס.*לסוב",חופשות וטיולים - שונות,user,,,detail`
 - **File order decides, not key length.** When several keys match, the
   **first matching row in the file (top to bottom) wins** and no later row is
   even checked. So a narrow exception must be placed *above* the broader rule

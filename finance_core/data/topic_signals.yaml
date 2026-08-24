@@ -75,3 +75,7 @@ ambiguous_abroad_keywords:
 ambiguous_local_keywords:
   - "TELEPHARMA"
   - "פארם אונליין"
+
+never_trip_keywords:
+  - "NETFLIX"
+  - "PATREON"

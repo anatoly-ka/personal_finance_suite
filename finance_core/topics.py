@@ -43,6 +43,7 @@ DEFAULT_SIGNALS: dict = {
     "tail_categories": ["כבישי אגרה", "השכרת רכב"],
     "ambiguous_abroad_keywords": ["Amazon", "AMZ*", "AliExpress", "eBay", "Alibaba", "iHerb"],
     "ambiguous_local_keywords": ["TELEPHARMA", "פארם אונליין"],
+    "never_trip_keywords": ["NETFLIX", "PATREON"],
 }
 
 _SIGNALS_DATA = os.path.join(os.path.dirname(__file__), "data", "topic_signals.yaml")
@@ -255,10 +256,23 @@ def recipe_trip_abroad(rows: list[dict], params: dict, signals: dict):
     for r in rows:
         if not _scope_ok(r, scope):
             continue
+        
+        # Skip transactions matching "never trip" keywords (e.g., Netflix, Patreon)
+        if _kw_match(_row_text(r), signals.get("never_trip_keywords", [])):
+            continue
+            
         d = _date(r.get(date_field))
         if d is None:
             continue
         cat = (r.get("category") or "").strip()
+        
+        if extended_start <= d < d1: # Look across the whole pre-trip window
+            # IMPROVEMENT: If it's a flight, we are confident it's trip-related
+            # even without a destination hint or vendor match.
+            if cat == "טיסות":
+                out[r["id"]] = ("confident", "Flight category (טיסות) found in pre-trip window")
+                continue
+
         text = _row_text(r)
 
         # Long-lead bookings (flights, shows, attractions): always pending,
@@ -331,6 +345,11 @@ def recipe_trip_local(rows: list[dict], params: dict, signals: dict):
     for r in rows:
         if not _scope_ok(r, scope):
             continue
+
+        # Skip transactions matching "never trip" keywords
+        if _kw_match(_row_text(r), signals.get("never_trip_keywords", [])):
+            continue
+
         d = _date(r.get(date_field))
         if d is None:
             continue
