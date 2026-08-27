@@ -261,7 +261,7 @@ def bind_refunds(records: list[dict]) -> dict:
 
     run_pass(build_tier2, apply_tier2, "assumed")
 
-    # Whatever is left has no candidate at all within the lookback window.
+        # Whatever is left has no candidate at all within the lookback window.
     for ref in unresolved.values():
         if "refund" in ref["flags"]:
             ref["flags"].remove("refund")
@@ -269,3 +269,56 @@ def bind_refunds(records: list[dict]) -> dict:
         stats["unmatched"] += 1
 
     return dict(stats)
+
+
+# ---------------------------------------------------------- pair annihilation
+
+_REFUND_FLAGS = {"refund", "assumed_refund"}
+
+
+def annihilate_bound_pairs(rows: list[dict]) -> tuple[list[dict], list[dict], dict]:
+    """Drop bound refund<->expense pairs whose BOTH legs are present in `rows`.
+
+    Skill 1 binds each matched refund to the expense it reverses via a
+    bidirectional `reference` link (the refund leg carries flag `refund` or
+    `assumed_refund`). Spending analysis wants net figures, so such a pair
+    cancels - but only when it can cancel *within the analyzed set*: a pair
+    straddling two topics (a December expense refunded in January) keeps both
+    legs intact whenever either one is outside the set. Nothing is ever
+    removed from the ledger itself; this is an analysis-time view only.
+
+    Returns (kept_rows, dropped_rows, stats); stats counts pairs and the ILS
+    totals of each removed side (they offset by construction).
+    """
+    by_id = {r["id"]: r for r in rows if r.get("id")}
+    dropped: set[str] = set()
+    stats = {"pairs": 0, "refunds_ils": 0.0, "expenses_ils": 0.0}
+
+    for r in rows:
+        rid = r.get("id")
+        if not rid or rid in dropped:
+            continue
+        if r.get("source_type") != "credit-card":
+            continue
+        if not _REFUND_FLAGS.intersection(r.get("flags") or []):
+            continue
+        for part in (r.get("reference") or "").split(";"):
+            partner = by_id.get(part.strip())
+            if partner is None or partner is r or partner["id"] in dropped:
+                continue
+            exp_ils = partner.get("amount_ils")
+            if exp_ils is None or exp_ils >= 0:
+                continue  # linked row is not an expense leg
+            back = {p.strip() for p in (partner.get("reference") or "").split(";")}
+            if rid not in back:
+                continue  # reference points elsewhere / one-directional
+            ref_ils = float(r.get("amount_ils") or 0.0)
+            dropped.update((rid, partner["id"]))
+            stats["pairs"] += 1
+            stats["refunds_ils"] += ref_ils
+            stats["expenses_ils"] += float(exp_ils)
+            break
+
+    kept = [r for r in rows if r.get("id") not in dropped]
+    out = [r for r in rows if r.get("id") in dropped]
+    return kept, out, stats

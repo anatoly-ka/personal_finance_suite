@@ -13,4 +13,6 @@ __all__ = [
     "merchants",
     "topics",
     "refunds",
+    "analyze",
+    "report_xlsx",
 ]

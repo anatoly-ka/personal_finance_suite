@@ -403,8 +403,9 @@ is written only if `openpyxl` happens to be present, and skipped with a warning
 otherwise.
 
 Once you have a ledger, see **finance-topic** (Skill 2) to pull out
-trip/topic-related subsets (e.g. "extract everything from my USA trip"). Skill
-3 (expense analysis) is designed but not built yet.
+trip/topic-related subsets (e.g. "extract everything from my USA trip"), and
+**finance-analyze** (Skill 3) to turn a topic - or a suite of topics - into
+a chart-bearing `.xlsx` analysis workbook.
 
 ## Deploying changes
 The skill is edited in a source project and deployed into the skills folder

@@ -82,5 +82,5 @@ the promotion survives the next deploy.)
 - Uses the Python standard library only - no packages to install. (`openpyxl`
   for the optional `--xlsx` mirror is used only if already present.)
 - Skill 2 (topic extraction) is implemented - see `finance-topic`. Skill 3
-  (expense analysis) is designed but not built yet.
+  (expense analysis) is implemented too - see `finance-analyze`.
 - After editing the skill source, redeploy with `powershell -File deploy.ps1`.
