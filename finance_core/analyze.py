@@ -166,26 +166,50 @@ def build_report(
     label: str = "",
     scope: str = "expenses",
     split_by: str = "month",
+    date_field: str = "billing_date",
+    split_dates: list[str] | None = None,
+    phase_ranges: dict[str, tuple[str, str]] | None = None,
     chart_dim: str = "bucket",
     top_n: int = 12,
     mapping: dict | None = None,
     row_topics: dict | None = None,
     extra_notes: dict | None = None,
+    force_include: set[str] | None = None,
 ) -> dict:
     """Aggregate resolved ledger rows into the report structures.
 
     `rows` must already be resolved (resolve_rows) and refund-annihilated by
     the caller when requested; annihilation results reach the notes via
     `extra_notes` ({annihilated, annihilated_stats}).
+
+    `date_field` picks which ledger date column drives every period split
+    (month/quarter/year/week/phase/custom): `date_iso` (operation date) or
+    `billing_date` (default). `split_dates` (raw ISO strings) are only used
+    when `split_by == "custom"`. `phase_ranges` (row id -> (date1, date2) ISO
+    strings, the owning topic's trip window) are only used when
+    `split_by == "phase"`.
+
+    `force_include` is a set of row ids that must NOT land on the transfers
+    side even though their category/group says otherwise (e.g. an FX cash
+    withdrawal category row that is actually trip spending) - they are
+    reclassified as expense/income by sign instead.
     """
     mapping = mapping or {}
     row_topics = row_topics or {}
+    force_include = force_include or set()
+    split_date_objs = sorted(
+        d for d in (topics.parse_date(v) for v in (split_dates or [])) if d)
+    parsed_phase_ranges = {
+        cid: (topics.parse_date(d1), topics.parse_date(d2))
+        for cid, (d1, d2) in (phase_ranges or {}).items()
+    }
     notes = {
         "fx_gap": [],
         "transfers": [],
         "stale_ids": [],
         "annihilated": [],
         "annihilated_stats": {},
+        "forced_include": [],
         "warnings": [],
     }
     if extra_notes:
@@ -198,16 +222,31 @@ def build_report(
     enriched: list[dict] = []
     for r in rows:
         group, bucket, side = classify_row(r, mapping)
-        period = topics.period_label(r.get("date_iso"), split_by)
-        if r.get("date_iso") and period is None:
-            notes["warnings"].append(
-                f"row {r['id']}: unparsable date {r.get('date_iso')!r}")
+        forced = False
+        if side == "transfer" and r["id"] in force_include:
+            amt = r.get("amount_ils") or 0.0
+            side = "expense" if amt < 0 else "income"
+            forced = True
+        date_val = r.get(date_field) or r.get("date_iso")
+        phase_range = parsed_phase_ranges.get(r["id"]) if split_by == "phase" else None
+        period = topics.period_label(
+            date_val, split_by, phase_range=phase_range, split_dates=split_date_objs)
+        if date_val and period is None:
+            if split_by == "phase":
+                notes["warnings"].append(
+                    f"row {r['id']}: no trip date range available for phase split "
+                    f"(topic missing date1/date2)")
+            else:
+                notes["warnings"].append(
+                    f"row {r['id']}: unparsable {date_field} {date_val!r}")
         rec = dict(r)
         rec["group"], rec["bucket"], rec["side"] = group, bucket, side
         rec["period"] = period or ""
         rec["topics"] = ";".join(row_topics.get(r["id"], []))
         enriched.append(rec)
-        if side == "fx_gap":
+        if forced:
+            notes["forced_include"].append(rec)
+        elif side == "fx_gap":
             notes["fx_gap"].append(rec)
         elif side == "transfer":
             notes["transfers"].append(rec)
@@ -264,6 +303,7 @@ def build_report(
         "label": label,
         "scope": scope,
         "split_by": split_by,
+        "date_field": date_field,
         "chart_dim_requested": chart_dim,
         "chart_dim": effective_dim,
         "metric": metric,

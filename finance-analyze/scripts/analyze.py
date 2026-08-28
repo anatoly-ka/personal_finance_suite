@@ -61,6 +61,22 @@ def _topic_span(rows: list[dict]) -> str:
     return f"{dates[0]} .. {dates[-1]}" if dates else "-"
 
 
+def _detail_lines(recs: list[dict], cap: int = 40) -> list[str]:
+    """One line per excluded/overridden row - id, date, amount, category,
+    description - so a curated topic's exclusions can be eyeballed before
+    generating the workbook."""
+    lines = []
+    for rec in recs[:cap]:
+        date = rec.get("billing_date") or rec.get("date_iso") or "-"
+        amt = analyze.fmt_ils(rec.get("amount_ils"))
+        cat = (rec.get("category") or "-").strip()
+        desc = (rec.get("description") or "").strip()
+        lines.append(f"[plan]     {rec.get('id', '?'):<16} {date}  {amt:>14}  {cat} | {desc}")
+    if len(recs) > cap:
+        lines.append(f"[plan]     ... and {len(recs) - cap} more")
+    return lines
+
+
 def _plan_lines(report: dict, comparison: dict | None, context: dict,
                 out_path: str) -> list[str]:
     t = report["totals"]
@@ -86,9 +102,16 @@ def _plan_lines(report: dict, comparison: dict | None, context: dict,
     lines.append(
         f"[plan] transfers  : {len(n['transfers'])} leftover internal-transfer "
         f"leg(s) excluded from sums ({analyze.fmt_ils(t['transfers_ils'])})")
+    lines.extend(_detail_lines(n["transfers"]))
+    if n.get("forced_include"):
+        lines.append(
+            f"[plan] overrides  : {len(n['forced_include'])} id(s) forced OUT of "
+            f"transfers into expense/income by --force-include")
+        lines.extend(_detail_lines(n["forced_include"]))
     lines.append(
         f"[plan] fx gaps    : {len(n['fx_gap'])} no_fx_rate row(s) cannot be "
         f"summed -> Reconciliation sheet")
+    lines.extend(_detail_lines(n["fx_gap"]))
     lines.append(
         f"[plan] scope      : {report['scope']} "
         f"(expenses {analyze.fmt_ils(t['expenses'])} / income "
@@ -97,7 +120,13 @@ def _plan_lines(report: dict, comparison: dict | None, context: dict,
         " (identity buckets)" if not report["bucket_differs"] else "")
     lines.append(
         f"[plan] breakdown  : by {dim_txt} (pie, top {report['top_n']} + אחר), "
-        f"by {report['split_by']} (column chart)")
+        f"by {report['split_by']} on {report['date_field']} (column chart)")
+    if report["split_by"] == "phase" and context.get("phase_ranges"):
+        lines.append(
+            "[plan] trip window: " + "; ".join(
+                f"{name} {d1}..{d2}" for name, (d1, d2) in context["phase_ranges"].items()))
+    if report["split_by"] == "custom" and context.get("split_dates"):
+        lines.append(f"[plan] split dates: {', '.join(context['split_dates'])}")
     if comparison:
         lines.append(
             f"[plan] comparison : DETECTED - {context.get('compare_reason', '')}"
@@ -168,6 +197,43 @@ def run(args) -> int:
         for cid in s.get("ids") or []:
             row_topics.setdefault(cid, []).append(s["topic"])
 
+    # ---- split-by validation (phase needs trip windows, custom needs dates)
+    phase_ranges: dict[str, tuple[str, str]] = {}
+    phase_topic_ranges: dict[str, tuple[str, str]] = {}
+    if args.split_by == "phase":
+        missing = []
+        for s in specs:
+            p = s.get("params") or {}
+            d1, d2 = p.get("date1"), p.get("date2")
+            if not (d1 and d2):
+                missing.append(s["topic"])
+                continue
+            phase_topic_ranges[s["topic"]] = (d1, d2)
+            for cid in s.get("ids") or []:
+                phase_ranges.setdefault(cid, (d1, d2))
+        if missing:
+            print(f"[error] --split-by phase needs date1/date2 on every selected "
+                  f"topic; missing on: {', '.join(missing)}.")
+            print("        Use a trip topic (trip_abroad/trip_local) or a custom "
+                  "topic created with --date1/--date2, or pick another --split-by.")
+            return 2
+
+    split_dates: list[str] = []
+    if args.split_by == "custom":
+        split_dates = _split_multi([args.split_dates] if args.split_dates else [])
+        if not split_dates:
+            print("[error] --split-by custom needs --split-dates D1[,D2,...] "
+                  "(ISO yyyy-mm-dd).")
+            return 2
+        bad = [d for d in split_dates if topics.parse_date(d) is None]
+        if bad:
+            print(f"[error] invalid date(s) in --split-dates: {', '.join(bad)} "
+                  f"(expected yyyy-mm-dd).")
+            return 2
+        split_dates.sort(key=topics.parse_date)
+    elif args.split_dates:
+        print("[warn] --split-dates is ignored unless --split-by custom.")
+
     # ---- refund annihilation (suite-wide, before any partitioning) -------
     extra_notes: dict = {"stale_ids": stale}
     refunds_mode = args.refunds
@@ -182,8 +248,12 @@ def run(args) -> int:
 
     mapping, map_path = analyze.load_category_map(project, args.category_map)
 
+    force_include = set(_split_multi([args.force_include] if args.force_include else []))
+
     label = "+".join(ordered_names)
     common = dict(scope=args.scope, split_by=args.split_by,
+                  date_field=args.split_date_field, split_dates=split_dates,
+                  phase_ranges=phase_ranges, force_include=force_include,
                   chart_dim=args.chart_dim, top_n=args.top_n, mapping=mapping)
     report = analyze.build_report(
         kept, label=label, row_topics=row_topics, extra_notes=extra_notes, **common)
@@ -228,6 +298,8 @@ def run(args) -> int:
         "input_desc": "; ".join(f"{m['name']} ({m['kind']}, {m['ids']} ids)"
                                 for m in topics_meta),
         "resolved_count": len(resolved),
+        "phase_ranges": phase_topic_ranges,
+        "split_dates": split_dates,
     }
 
     out_path = args.out or _default_out(project, label)
@@ -286,8 +358,19 @@ def build_parser() -> argparse.ArgumentParser:
                          "are always income; bound refund pairs are annihilated unless "
                          "--refunds keep.")
     ap.add_argument("--split-by", dest="split_by",
-                    choices=["month", "quarter", "year"], default="month",
-                    help="Period granularity for By-period breakdown (default: month).")
+                    choices=["month", "quarter", "year", "week", "phase", "custom"],
+                    default="month",
+                    help="Period granularity for By-period breakdown (default: month). "
+                         "'phase' splits before/during/after each row's own trip "
+                         "(needs date1/date2 on every selected topic); 'custom' splits "
+                         "on arbitrary --split-dates boundaries.")
+    ap.add_argument("--split-date-field", dest="split_date_field",
+                    choices=["date_iso", "billing_date"], default="billing_date",
+                    help="Ledger date column driving every period split above "
+                         "(default: billing_date; date_iso is the operation date).")
+    ap.add_argument("--split-dates", dest="split_dates",
+                    help="Comma-separated ISO boundary dates (yyyy-mm-dd) for "
+                         "--split-by custom; N dates make N+1 buckets.")
     ap.add_argument("--chart-dim", dest="chart_dim", choices=["bucket", "group"],
                     default="bucket", help="Dimension driving the pie chart (default: bucket; "
                                            "falls back to group while buckets stay at identity).")
@@ -296,6 +379,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--refunds", choices=["annihilate", "keep"], default="annihilate",
                     help="Annihilate bound refund<->expense pairs inside the analyzed set "
                          "(default) or keep both legs visible.")
+    ap.add_argument("--force-include", dest="force_include",
+                    help="Comma-separated row id(s) to count as expense/income even though "
+                         "their category/group would normally exclude them as an internal "
+                         "transfer (e.g. an FX cash withdrawal that was actually trip spending).")
     ap.add_argument("--compare", choices=["auto", "always", "never"], default="auto",
                     help="Multi-topic comparison sheets/charts (default: auto-detect "
                          "similar suites such as trips or date-range slices).")

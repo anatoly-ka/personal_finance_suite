@@ -133,6 +133,7 @@ def _overview_sheet(wb, report: dict, context: dict) -> None:
             f"{m['name']} ({m['kind']}, {m['ids']} ids)" for m in topics_meta) or "-"),
         ("scope", report["scope"]),
         ("split_by", report["split_by"]),
+        ("split date field", report["date_field"]),
         ("chart dimension", report["chart_dim"] +
          (" (= group; buckets at identity)" if not report["bucket_differs"] else "")),
         ("chart top-N", report["top_n"]),
@@ -148,6 +149,7 @@ def _overview_sheet(wb, report: dict, context: dict) -> None:
         ("net", t["net"]),
         ("annihilated refund pairs", len(n["annihilated"]) // 2),
         ("excluded transfers (abs ₪)", t["transfers_ils"]),
+        ("forced into expense/income (--force-include)", len(n.get("forced_include") or [])),
         ("no_fx_rate rows (not summed)", len(n["fx_gap"])),
         ("stale topic ids", len(n["stale_ids"])),
     ]
@@ -287,6 +289,13 @@ def _reconciliation_sheet(wb, report: dict) -> None:
         ["id", "date_iso", "description", "category", "amount_ils", "explanation"],
         sorted(n["transfers"], key=lambda r: (r.get("seq") or 0, r.get("id"))),
         money_col=5)
+
+    if n.get("forced_include"):
+        write_section(
+            f"Forced into expense/income by --force-include ({len(n['forced_include'])} row(s))",
+            ["id", "date_iso", "description", "category", "amount_ils", "explanation"],
+            sorted(n["forced_include"], key=lambda r: (r.get("seq") or 0, r.get("id"))),
+            money_col=5)
 
     fx_rows = [{
         "id": r.get("id"), "date_iso": r.get("date_iso"),

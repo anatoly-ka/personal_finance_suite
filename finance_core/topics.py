@@ -668,7 +668,41 @@ def extract_rows(ledger_rows: list[dict], spec: dict, sort: str = "seq") -> list
     return rows
 
 
-def period_label(date_value: str, split_by: str) -> str | None:
+def parse_date(value) -> _dt.date | None:
+    """Public wrapper around the internal ISO-date parser, for callers outside
+    this module (finance-analyze's phase/custom split boundaries)."""
+    return _date(value)
+
+
+def _custom_bucket_label(d: _dt.date, bounds: list[_dt.date]) -> str:
+    """Label a date against user-supplied boundary dates: N boundaries make
+    N+1 buckets. Labels carry a zero-padded ordinal prefix so plain
+    label-text sorting (used throughout finance-analyze) keeps them in
+    chronological order."""
+    if d < bounds[0]:
+        return f"01 | < {bounds[0].isoformat()}"
+    for i in range(len(bounds) - 1):
+        if bounds[i] <= d < bounds[i + 1]:
+            end = bounds[i + 1] - _dt.timedelta(days=1)
+            return f"{i + 2:02d} | {bounds[i].isoformat()} .. {end.isoformat()}"
+    return f"{len(bounds) + 1:02d} | >= {bounds[-1].isoformat()}"
+
+
+def period_label(
+    date_value: str,
+    split_by: str,
+    *,
+    phase_range: tuple[_dt.date | None, _dt.date | None] | None = None,
+    split_dates: list[_dt.date] | None = None,
+) -> str | None:
+    """Bucket label for one row's chosen date column.
+
+    `phase_range` (only used when split_by == "phase") is the (start, end)
+    of the trip the row's topic belongs to; rows outside any known trip
+    window return None (surfaced as a warning by the caller).
+    `split_dates` (only used when split_by == "custom") are the caller's
+    sorted arbitrary boundary dates.
+    """
     d = _date(date_value)
     if d is None:
         return None
@@ -678,4 +712,20 @@ def period_label(date_value: str, split_by: str) -> str | None:
         return f"{d.year:04d}-Q{(d.month - 1) // 3 + 1}"
     if split_by == "year":
         return f"{d.year:04d}"
+    if split_by == "week":
+        iso_year, iso_week, _iso_weekday = d.isocalendar()
+        return f"{iso_year:04d}-W{iso_week:02d}"
+    if split_by == "phase":
+        if not phase_range or not phase_range[0] or not phase_range[1]:
+            return None
+        d1, d2 = phase_range
+        if d < d1:
+            return "1 - before trip"
+        if d <= d2:
+            return "2 - during trip"
+        return "3 - after trip"
+    if split_by == "custom":
+        if not split_dates:
+            return None
+        return _custom_bucket_label(d, split_dates)
     return None

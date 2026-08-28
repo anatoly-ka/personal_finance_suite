@@ -27,9 +27,12 @@ python "<skills>\finance-analyze\scripts\analyze.py" --project <project> --topic
 [plan] resolution : 117 row(s) resolved
 [plan] refunds    : 3 bound pair(s) will annihilate (487.20 ₪ of refunds)
 [plan] transfers  : 1 leftover internal-transfer leg(s) excluded from sums (1,200.00 ₪)
+[plan]     C4412-000042     2026-03-05      -1,200.00 ₪  העברת מזומן | כספומט
 [plan] fx gaps    : 2 no_fx_rate row(s) cannot be summed -> Reconciliation sheet
+[plan]     C4412-000091     2026-03-11         -55.00 ₪  קניות שונות | Foreign Store
+[plan]     C4412-000097     2026-03-14         -12.30 ₪  קניות שונות | Another Store
 [plan] scope      : expenses (expenses 38,204.11 ₪ / income 350.00 ₪ / net -37,854.11 ₪)
-[plan] breakdown  : by bucket (pie, top 12 + אחר), by month (column chart)
+[plan] breakdown  : by bucket (pie, top 12 + אחר), by month on billing_date (column chart)
 [plan] comparison : DETECTED - all topics are trips -> Compare sheets + clustered BarChart3D / PieChart3D
 [plan] output     : <project>\data\analysis\usa-2026.xlsx
 [plan] sheets     : Overview | By bucket | By group | By period | Details | Reconciliation | Compare bucket | Compare period
@@ -38,6 +41,15 @@ python "<skills>\finance-analyze\scripts\analyze.py" --project <project> --topic
 After the user approves, re-run without `--plan`. The Overview sheet embeds
 the executed parameters as a permanent audit record. Existing outputs are
 never overwritten without `--update`.
+
+Because a topic's ids were already curated by `finance-topic`, every row that
+the plan proposes to exclude (internal transfers, no_fx_rate rows) is listed
+individually - not just counted - so a miscategorized row is easy to spot
+before generating. If a row is being excluded for the wrong reason (e.g. an
+FX cash-withdrawal category that was actually trip spending), use
+`--force-include ID,ID,...` to count it as expense/income instead; the
+override shows up in its own `[plan] overrides` line and in the workbook's
+`Reconciliation` sheet.
 
 ## Input modes
 
@@ -55,7 +67,7 @@ Topics still holding `pending_review` rows are refused unless `--force`.
 |---|---|
 | `Overview` | parameters used, headline totals, gap counts |
 | `By bucket`, `By group` | totals / counts / share per reconstructed group & bucket + **native pie chart** (top-N + "אחר"); both sheets appear once the project customizes `category_map.yaml`, otherwise a single identity sheet |
-| `By period` | month/quarter/year rollup + **native column chart** |
+| `By period` | rollup by the chosen `--split-by` granularity (month/quarter/year/week/phase/custom) + **native column chart** |
 | `Details` | one row per member record - stable `id` first, then dates, description, category/group/bucket, amounts, flags, explanation, contributing topics; autofilter on, Google Sheets-friendly |
 | `Reconciliation` | annihilated refund pairs, excluded internal-transfer legs, **no_fx_rate rows** (excluded from every sum - fix upstream in finance-unify), stale topic ids, warnings |
 | `Compare <dim>`, `Compare period` | multi-topic matrices + **clustered BarChart3D** and **PieChart3D of grand totals** (auto when topics are comparable: all trips, same kind, or pure date-range slices; `--compare always` forces, `--compare never` disables) |
@@ -76,6 +88,31 @@ Topics still holding `pending_review` rows are refused unless `--force`.
   (`category_to_group` / `group_to_bucket` right-hand sides), falling back to
   the shared master under `finance_core/data/`; edit the project copy to
   reshape the pie.
+- `--force-include ID,ID,...` overrides a specific row's category-driven
+  transfer classification for this analysis, counting it as expense/income
+  instead (e.g. an FX cash withdrawal that was actually spent on the trip,
+  rather than moved between the user's own accounts). It never changes the
+  ledger or `category_map.yaml` - only this run's totals/sheets.
+
+## Splitting the "By period" sheet
+
+`--split-by` controls how rows are bucketed on the `By period` sheet (and the
+`Compare period` sheet for suites):
+
+| `--split-by` | Buckets |
+|---|---|
+| `month` (default) | `YYYY-MM` |
+| `quarter` | `YYYY-Qn` |
+| `year` | `YYYY` |
+| `week` | ISO week, `YYYY-Www` |
+| `phase` | `1 - before trip` / `2 - during trip` / `3 - after trip`, relative to **each row's own topic** trip window (`date1`/`date2`). Every selected topic must carry `date1`/`date2` (trip topics always do; a `custom` topic only if it was created with `--date1/--date2`) - otherwise the run is refused, naming the offending topic(s). In a multi-topic suite each topic keeps its own window, so "during trip" lines up per-trip even when trips don't overlap in time. |
+| `custom` | Arbitrary boundaries from `--split-dates D1[,D2,...]` (ISO `yyyy-mm-dd`, any count/order - sorted automatically). N dates make N+1 buckets: before D1, [D1,D2), ..., on/after the last date. Example: `--split-dates 2026-08-01` makes a simple before/after-2026-08-01 split. |
+
+`--split-date-field date_iso|billing_date` (default `billing_date`) picks which
+ledger date column feeds *every* split above (including `month`/`quarter`/
+`year`/`week`): the operation date (`date_iso`) or the billing/statement date
+(`billing_date`, e.g. when a credit-card charge posts a month after the
+purchase). The chosen field is recorded on the `Overview` sheet.
 
 ## Options reference
 
@@ -84,7 +121,10 @@ Topics still holding `pending_review` rows are refused unless `--force`.
 --ledger PATH              default <project>/data/ledger.csv
 --topic N | --topics A,B   exactly one of the two
 --scope expenses|income|all        default expenses
---split-by month|quarter|year      default month
+--split-by month|quarter|year|week|phase|custom      default month
+--split-date-field date_iso|billing_date              default billing_date
+--split-dates D1,D2,...    boundary dates, required when --split-by custom
+--force-include ID,ID,...  reclassify id(s) out of transfers into expense/income
 --chart-dim bucket|group           default bucket (falls back while identity)
 --top-n N                  pie slices before "אחר" (default 12)
 --refunds annihilate|keep          default annihilate
@@ -105,6 +145,12 @@ Topics still holding `pending_review` rows are refused unless `--force`.
 - "Analyze the 'all-trips-suite' topic, but keep refund pairs visible instead of annihilating them."
 - "Regenerate the USA analysis workbook with the top 20 pie slices instead of the default 12."
 - "Analyze my 2024 expenses split by quarter."
+- "Analyze the USA trip split by week."
+- "Analyze the USA trip split into before/during/after the trip."
+- "Analyze the USA-2026 and Italy-2025 trips together, comparing before/during/after each trip."
+- "Analyze the whole-2024 topic split at 2024-07-01 and 2024-10-01 - three custom periods."
+- "Analyze the USA trip by month, but split on the operation date instead of the billing date."
+- "That C3687-001541 transfer was actually cash I withdrew for the trip - include it as an expense."
 
 ## Requirements
 
