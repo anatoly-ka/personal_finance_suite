@@ -2,17 +2,9 @@
 
 Aggregate a `finance-topic` selection - a single topic or a **suite** of
 topics - into one `.xlsx` workbook with native Excel/Google-Sheets charts.
-Skill 3 is the read-only consumer at the end of the pipeline:
-
-```
-MyFinanda .xlsx ──finance-unify──▶ data/ledger.csv
-                                      │
-                          finance-topic (specs, review)
-                                      │
-                       finance-analyze ──▶ data/analysis/<label>.xlsx
-```
-
-It never modifies the ledger or topic files.
+Skill 3 is the read-only consumer at the end of the pipeline (see the
+[suite README](../README.md) for the full pipeline diagram and how the three
+skills fit together). It never modifies the ledger or topic files.
 
 ## Workflow: plan → approve → generate
 
@@ -161,8 +153,5 @@ to load.
 
 ## Editing this skill
 
-This skill runs directly from its skills folder (e.g. `~/.agents/skills/` on
-Linux/macOS, `%USERPROFILE%\.agents\skills\` on Windows - substitute your
-agent environment's actual folder, e.g. `.cursor` for Cursor). Edit files
-under `finance_core/` or `finance-analyze/` in place; there is no separate
-build or deploy step - changes take effect on the next run.
+See the [suite README](../README.md#editing-these-skills) for how these
+skills are laid out and edited.

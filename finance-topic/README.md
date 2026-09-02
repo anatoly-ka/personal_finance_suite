@@ -6,6 +6,10 @@ its own new file. It never changes the ledger itself, and it never renumbers
 or re-IDs a row: whatever `id` a transaction had in the ledger, it keeps in
 the topic file too.
 
+> Part of a 3-skill suite - see the [suite README](../README.md) for the full
+> pipeline overview, project/environment conventions, and an end-to-end
+> walkthrough covering all three skills.
+
 **You do not need to open, view, or edit any file yourself to use this
 skill.** Everything happens through plain-English requests to the assistant;
 it runs the commands, reads the files, and reports back to you in the chat.
@@ -264,8 +268,5 @@ the optional `topic_signals.yaml`; without it, the built-in defaults apply
 and everything else still works.
 
 ## Editing this skill
-This skill runs directly from its skills folder (e.g. `~/.agents/skills/` on
-Linux/macOS, `%USERPROFILE%\.agents\skills\` on Windows - substitute your
-agent environment's actual folder, e.g. `.cursor` for Cursor). Edit files
-under `finance_core/` or `finance-topic/` in place; there is no separate
-build or deploy step - changes take effect on the next run.
+See the [suite README](../README.md#editing-these-skills) for how these
+skills are laid out and edited.

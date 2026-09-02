@@ -3,6 +3,10 @@
 Unifies a multi-sheet MyFinanda XLSX export (Hebrew) into a single, chronological
 transaction table (CSV/XLSX) that other finance skills can analyze.
 
+> Part of a 3-skill suite - see the [suite README](../README.md) for the full
+> pipeline overview, project/environment conventions, and an end-to-end
+> walkthrough covering all three skills.
+
 ## Project
 
 This skill operates inside a **project** - one folder per dataset (e.g. per
@@ -54,9 +58,6 @@ cp ~/Downloads/MyFinandaExport.xlsx ~/Projects/home-finance/data/source/
 python ~/.agents/skills/finance-unify/scripts/unify.py --project ~/Projects/home-finance
 ```
 
-(Adjust `.agents` above to whatever folder your agent environment uses for
-skills, e.g. `.cursor` for Cursor.)
-
 ## What it does
 - Reads only the transaction sheets (ILS bank accounts, FX accounts, credit
   cards); skips summaries, savings/loans/investments, budget, the cash wallet,
@@ -99,9 +100,6 @@ The **merchant map** (`merchant_categories.csv`) is *not* per-project - it ships
 with the skill and is shared across all projects:
 - Windows: `%USERPROFILE%\.agents\skills\finance-unify\merchant_categories.csv`
 - Linux/macOS: `~/.agents/skills/finance-unify/merchant_categories.csv`
-
-(Again, substitute your agent environment's actual skills folder if it isn't
-`.agents`.)
 
 Any path can be overridden on the command line. Path resolution order:
 command-line argument > `finance.config.yaml` > the defaults above.
@@ -264,7 +262,6 @@ Guidelines:
   shared fallback):
   - Windows: `%USERPROFILE%\.agents\skills\finance_core\data\category_map.yaml`
   - Linux/macOS: `~/.agents/skills/finance_core/data/category_map.yaml`
-  - (substitute your agent environment's actual skills folder if it isn't `.agents`)
 - A `category_to_bucket` override wins over `group_to_bucket` for the same row.
 - Leave `group_to_bucket` at identity to keep a group as its own bucket.
 - Usually leave `category_to_group` alone (it mirrors the export).
@@ -429,7 +426,5 @@ trip/topic-related subsets (e.g. "extract everything from my USA trip"), and
 a chart-bearing `.xlsx` analysis workbook.
 
 ## Editing this skill
-This skill runs directly from its skills folder (e.g. `~/.agents/skills/` -
-substitute your agent environment's actual folder). Edit files under
-`finance_core/` or `finance-unify/` in place; there is no separate build or
-deploy step - changes take effect on the next run.
+See the [suite README](../README.md#editing-these-skills) for how these
+skills are laid out and edited.
