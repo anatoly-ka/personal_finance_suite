@@ -41,6 +41,7 @@ DEFAULT_SIGNALS: dict = {
     "cash_withdrawal_categories": ["העברת מזומן", "העברת מט\"ח"],
     "cash_withdrawal_keywords": ["כספומט", "ATM", "סניפומט", "משיכת מזומן", "הפועלים"],
     "tail_categories": ["כבישי אגרה", "השכרת רכב"],
+    "home_airport_keywords": ["לוד", "נתב\"ג", "נתבג", "בן גוריון", "Ben Gurion", "TLV"],
     "ambiguous_abroad_keywords": ["Amazon", "AMZ*", "AliExpress", "eBay", "Alibaba", "iHerb"],
     "ambiguous_local_keywords": ["TELEPHARMA", "פארם אונליין"],
     "never_trip_keywords": ["NETFLIX", "PATREON"],
@@ -295,6 +296,15 @@ def recipe_trip_abroad(rows: list[dict], params: dict, signals: dict):
             if ok:
                 out[r["id"]] = ("confident", reason + " during the trip window")
                 continue
+
+        # Home-airport (Ben-Gurion/Lod) purchase on the departure date: paid
+        # in ILS at an Israeli merchant, so neither the pre-purchase nor the
+        # foreign-currency during-trip checks below would ever catch it.
+        if d in (d1, d1 + _dt.timedelta(days=1)) and r.get("source_type") == "credit-card" \
+                and (r.get("currency_orig") or "").strip() == "ILS" \
+                and _kw_match(_dest_text(r), signals.get("home_airport_keywords", [])):
+            out[r["id"]] = ("pending", f"home-airport purchase ({cat or 'n/a'}) on the trip's departure date - please confirm it belongs to this trip")
+            continue
 
         # Regardless of category: a card charge before the trip that shares
         # the trip's currency, or whose merchant text matches a destination

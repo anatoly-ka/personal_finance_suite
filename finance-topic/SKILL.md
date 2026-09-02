@@ -66,7 +66,8 @@ python scripts/topic.py list --project <DIR>
   and show/attraction bookings - always `pending_review` even on a destination
   match, a regardless-of-category check for pre-trip card charges in the trip's
   own currency or matching a destination hint, cash/FX withdrawal from
-  `date1-1`, foreign-currency card charges during the trip, toll/car-rental
+  `date1-1`, an ILS home-airport (Ben-Gurion/Lod) purchase on the departure
+  date, foreign-currency card charges during the trip, toll/car-rental
   settlements shortly after.
 - `trip_local` - `--date1/--date2` (+ optional `--region`, `--lookback-days`,
   `--extended-lookback-days`): same pre-purchase/extended-lookback/
@@ -92,6 +93,9 @@ python scripts/topic.py list --project <DIR>
   pre-purchase category - surfaced regardless of category.
 - A foreign-currency charge during a trip abroad that looks like a generic
   online retailer (Amazon, AliExpress, ...).
+- An ILS purchase at the home airport (Ben-Gurion/Lod) on the trip's
+  departure date (`date1` or `date1+1`) - duty-free, food, shopping paid in
+  ILS before/after the foreign-currency leg begins.
 - A toll/car-rental settlement shortly after a trip that doesn't match a
   destination hint.
 

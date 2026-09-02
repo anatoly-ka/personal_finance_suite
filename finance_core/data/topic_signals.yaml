@@ -59,6 +59,20 @@ tail_categories:
   - "כבישי אגרה"        # toll roads
   - "השכרת רכב"         # car rental (late deposit/fee settlement)
 
+# Free-text keywords (checked against description + detail + merchant_country)
+# that identify the home departure airport itself (Ben-Gurion/Lod) - used to
+# catch ILS-currency purchases (duty-free, food, shopping) made there on the
+# trip's departure date, which would otherwise be invisible: they aren't in a
+# pre-purchase category, and the during-trip foreign-currency check doesn't
+# fire because they're paid in ILS at an Israeli merchant.
+home_airport_keywords:
+  - "לוד"              # Lod (the airport's city)
+  - "נתב\"ג"           # Ben-Gurion airport abbreviation (with gershayim)
+  - "נתבג"            # same, without gershayim (merchant text varies)
+  - "בן גוריון"        # Ben Gurion (Hebrew, spelled out)
+  - "Ben Gurion"
+  - "TLV"
+
 # Online-retailer keywords that show up during trips abroad but are usually
 # unrelated household shopping, not trip expenses -> flagged pending_review
 # instead of auto-confirmed.
