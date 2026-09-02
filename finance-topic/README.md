@@ -196,6 +196,23 @@ The assistant just re-opens `eilat-2023.review.csv` (or re-runs `propose`,
 which is safe to repeat) and reports back - no new decisions are made until
 you answer.
 
+## Other things you can ask for
+
+> "List all the topics you've built for this project so far."
+
+The assistant reports each topic's name, kind, and how many rows are
+included / pending / excluded - handy once you've built a few and lost track
+of what's already been extracted.
+
+> "Extract the mortgage topic split by billing date instead of the
+> transaction date."
+
+By default rows are matched and split on the **transaction date**
+(`date_iso`). If the billing/statement date matters more for a particular
+topic (e.g. a credit-card charge that posts a month after the purchase you
+care about), just ask for it explicitly and the assistant switches to
+`billing_date` for that run.
+
 ## Advanced: tuning the heuristics (optional)
 
 If matches consistently feel off for your data, you (or the assistant, on
@@ -236,6 +253,9 @@ itself) are used automatically if you never touch this file.
 - "Show me what's still pending for the USA trip topic."
 - "Update the USA-2026 topic: exclude the Amazon order, include the taxi
   charge on August 5th."
+- "List all topics I've extracted so far in this project."
+- "Extract the mortgage topic split on the billing date instead of the
+  transaction date."
 
 ## Requirements
 Python 3.9+ only - the normal workflow (`propose`/`review`/`extract`) uses
@@ -243,18 +263,9 @@ the **standard library alone**. PyYAML is needed only if you choose to edit
 the optional `topic_signals.yaml`; without it, the built-in defaults apply
 and everything else still works.
 
-## Deploying changes
-The skill is edited in a source project and deployed into the skills folder
-(`%USERPROFILE%\.cursor\skills\` on Windows, `~/.cursor/skills/` on
-Linux/macOS). After changing anything under `finance_core/` or
-`finance-topic/`, redeploy:
-
-```powershell
-# Windows
-powershell -File deploy.ps1
-```
-
-```bash
-# Linux/macOS (PowerShell 7+)
-pwsh -File deploy.ps1
-```
+## Editing this skill
+This skill runs directly from its skills folder (e.g. `~/.agents/skills/` on
+Linux/macOS, `%USERPROFILE%\.agents\skills\` on Windows - substitute your
+agent environment's actual folder, e.g. `.cursor` for Cursor). Edit files
+under `finance_core/` or `finance-topic/` in place; there is no separate
+build or deploy step - changes take effect on the next run.

@@ -8,11 +8,13 @@ transaction table (CSV/XLSX) that other finance skills can analyze.
 This skill operates inside a **project** - one folder per dataset (e.g. per
 household). The project holds your exports, the generated ledger, the flag
 report, your corrections, and your per-project taxonomy, so each dataset keeps
-its own state and history. The skill itself lives in `~/.cursor/skills/`; your
-financial data does not.
+its own state and history. The skill itself lives in `~/.agents/skills/`; your
+financial data does not. (The exact folder depends on your agent environment -
+e.g. Cursor uses `~/.cursor/skills/` instead - substitute it in every path
+below.)
 
 **Where it should reside:** anywhere you keep your work. Keep it outside the
-skills folder (`%USERPROFILE%\.cursor\` on Windows, `~/.cursor/` on Linux/macOS).
+skills folder (`%USERPROFILE%\.agents\` on Windows, `~/.agents/` on Linux/macOS).
 - Windows: `%USERPROFILE%\Projects\<name>-finance\`
 - Linux/macOS: `~/Projects/<name>-finance/` (or `~/Developer/`, `~/repos/`)
 
@@ -41,7 +43,7 @@ Windows (PowerShell):
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\Projects\home-finance\data\source" | Out-Null
 Copy-Item "$env:USERPROFILE\Downloads\MyFinandaExport.xlsx" "$env:USERPROFILE\Projects\home-finance\data\source\"
-python "$env:USERPROFILE\.cursor\skills\finance-unify\scripts\unify.py" --project "$env:USERPROFILE\Projects\home-finance"
+python "$env:USERPROFILE\.agents\skills\finance-unify\scripts\unify.py" --project "$env:USERPROFILE\Projects\home-finance"
 ```
 
 Linux/macOS (bash):
@@ -49,8 +51,11 @@ Linux/macOS (bash):
 ```bash
 mkdir -p ~/Projects/home-finance/data/source
 cp ~/Downloads/MyFinandaExport.xlsx ~/Projects/home-finance/data/source/
-python ~/.cursor/skills/finance-unify/scripts/unify.py --project ~/Projects/home-finance
+python ~/.agents/skills/finance-unify/scripts/unify.py --project ~/Projects/home-finance
 ```
+
+(Adjust `.agents` above to whatever folder your agent environment uses for
+skills, e.g. `.cursor` for Cursor.)
 
 ## What it does
 - Reads only the transaction sheets (ILS bank accounts, FX accounts, credit
@@ -92,8 +97,11 @@ default: current directory):
 
 The **merchant map** (`merchant_categories.csv`) is *not* per-project - it ships
 with the skill and is shared across all projects:
-- Windows: `%USERPROFILE%\.cursor\skills\finance-unify\merchant_categories.csv`
-- Linux/macOS: `~/.cursor/skills/finance-unify/merchant_categories.csv`
+- Windows: `%USERPROFILE%\.agents\skills\finance-unify\merchant_categories.csv`
+- Linux/macOS: `~/.agents/skills/finance-unify/merchant_categories.csv`
+
+(Again, substitute your agent environment's actual skills folder if it isn't
+`.agents`.)
 
 Any path can be overridden on the command line. Path resolution order:
 command-line argument > `finance.config.yaml` > the defaults above.
@@ -254,8 +262,9 @@ category_to_bucket:
 Guidelines:
 - Edit the **per-project** `category_map.yaml`, not the master (that one is the
   shared fallback):
-  - Windows: `%USERPROFILE%\.cursor\skills\finance_core\data\category_map.yaml`
-  - Linux/macOS: `~/.cursor/skills/finance_core/data/category_map.yaml`
+  - Windows: `%USERPROFILE%\.agents\skills\finance_core\data\category_map.yaml`
+  - Linux/macOS: `~/.agents/skills/finance_core/data/category_map.yaml`
+  - (substitute your agent environment's actual skills folder if it isn't `.agents`)
 - A `category_to_bucket` override wins over `group_to_bucket` for the same row.
 - Leave `group_to_bucket` at identity to keep a group as its own bucket.
 - Usually leave `category_to_group` alone (it mirrors the export).
@@ -288,6 +297,18 @@ GALLERIA BORGHESE ARTE,אטרקציות,assumed
   `description` field. You can target a different field (e.g., `detail`) by
   adding it as an optional 6th column in the CSV:
   `"אלכס.*לסוב",חופשות וטיולים - שונות,user,,,detail`
+- **Amount bounds (optional 4th/5th columns)**: `min_ils,max_ils` - inclusive
+  bounds on the row's *absolute* ILS amount. Either side can be left blank for
+  "unbounded" (a trailing comma like `300,` means "300 ILS or more"). A
+  bounded entry only matches when an ILS amount is available and falls inside
+  its range, so the same merchant can map to two categories by transaction
+  size, e.g.:
+  ```csv
+  ישיר ביטוח חיים,ביטוח משכנתא,user,300,
+  ```
+  (premiums of 300 ILS or more from this merchant are mortgage insurance;
+  a separate, unbounded or lower-range row could catch smaller premiums as
+  plain life/health insurance).
 - **File order decides, not key length.** When several keys match, the
   **first matching row in the file (top to bottom) wins** and no later row is
   even checked. So a narrow exception must be placed *above* the broader rule
@@ -329,10 +350,9 @@ Re-run with `--promote-corrections` to add those merchant->category pairs (as
 `user`) to `merchant_categories.csv`. They are inserted right after the
 header - ahead of every pre-existing entry - so a freshly promoted, specific
 correction is guaranteed to be checked (and win) before any broader rule
-already in the file; they then auto-apply everywhere. Because the map lives
-inside the skill, promoting edits the deployed copy; in this dev setup, also
-keep the source copy in sync (or run against the source skill folder) and
-redeploy so the change is preserved.
+already in the file; they then auto-apply everywhere. The map lives inside
+the skill folder itself, so promoting edits it directly - no separate deploy
+step is needed.
 
 ## Output columns
 `seq, op_seq, id, source_type, source_name, date_iso, time, date_serial,
@@ -396,9 +416,10 @@ binding"), `assumed_refund` (non-obvious binding found), `unmatched_refund`
 ## Requirements
 Python 3.9+ only - finance-unify uses the **standard library alone** (no
 third-party packages to install). It reads `.xlsx`, writes CSV, and manages the
-per-project taxonomy without `openpyxl`/`pyyaml`/`pandas`. Those packages are
-used only by the analysis skill (Skill 3), which installs them automatically if
-you ask for chart output. The optional `--xlsx` mirror here is a convenience: it
+per-project taxonomy without `openpyxl`/`pyyaml`. Those packages (`openpyxl`
+for charts, `pyyaml` for the taxonomy/config files) are used only by the
+analysis skill (Skill 3), which installs `openpyxl` automatically if you ask
+for chart output. The optional `--xlsx` mirror here is a convenience: it
 is written only if `openpyxl` happens to be present, and skipped with a warning
 otherwise.
 
@@ -407,17 +428,8 @@ trip/topic-related subsets (e.g. "extract everything from my USA trip"), and
 **finance-analyze** (Skill 3) to turn a topic - or a suite of topics - into
 a chart-bearing `.xlsx` analysis workbook.
 
-## Deploying changes
-The skill is edited in a source project and deployed into the skills folder
-(`%USERPROFILE%\.cursor\skills\` on Windows, `~/.cursor/skills/` on Linux/macOS).
-After changing anything under `finance_core/` or `finance-unify/`, redeploy:
-
-```powershell
-# Windows
-powershell -File deploy.ps1
-```
-
-```bash
-# Linux/macOS (PowerShell 7+)
-pwsh -File deploy.ps1
-```
+## Editing this skill
+This skill runs directly from its skills folder (e.g. `~/.agents/skills/` -
+substitute your agent environment's actual folder). Edit files under
+`finance_core/` or `finance-unify/` in place; there is no separate build or
+deploy step - changes take effect on the next run.

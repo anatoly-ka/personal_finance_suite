@@ -154,12 +154,15 @@ purchase). The chosen field is recorded on the `Overview` sheet.
 
 ## Requirements
 
-Python 3.10+. Standard library only for planning; generating the workbook
+Python 3.9+. Standard library only for planning; generating the workbook
 needs `openpyxl`, which is installed automatically on first use (manual
 instructions if that fails). PyYAML is needed only if a category map exists
 to load.
 
-## Deploy note
+## Editing this skill
 
-Like the other skills, edit sources in this repo and re-deploy to the live
-skills folder with the project's `deploy.ps1` after changes.
+This skill runs directly from its skills folder (e.g. `~/.agents/skills/` on
+Linux/macOS, `%USERPROFILE%\.agents\skills\` on Windows - substitute your
+agent environment's actual folder, e.g. `.cursor` for Cursor). Edit files
+under `finance_core/` or `finance-analyze/` in place; there is no separate
+build or deploy step - changes take effect on the next run.
