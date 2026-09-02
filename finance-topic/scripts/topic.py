@@ -360,7 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_extract = sub.add_parser("extract", help="Write the topic CSV(s) from the spec's included ids.")
     common(p_extract)
     p_extract.add_argument("--topic", required=True)
-    p_extract.add_argument("--sort", choices=["seq", "op_seq"], default="seq", help="Ordering (default: seq).")
+    p_extract.add_argument("--sort", choices=["seq", "op_seq"], default="op_seq", help="Ordering (default: op_seq).")
     p_extract.add_argument("--split-by", dest="split_by", choices=["month", "quarter", "year"], help="Write one file per period.")
     p_extract.add_argument("--date-field", dest="date_field", choices=["date_iso", "billing_date"],
                             help="Date column used for --split-by (default: the topic's stored date_field).")

@@ -660,7 +660,7 @@ def write_review_csv(path: str, spec: dict, ledger_by_id: dict) -> None:
 
 # ---------------------------------------------------------------- extract
 
-def extract_rows(ledger_rows: list[dict], spec: dict, sort: str = "seq") -> list[dict]:
+def extract_rows(ledger_rows: list[dict], spec: dict, sort: str = "op_seq") -> list[dict]:
     ids = set(spec["ids"])
     key = "seq" if sort not in ("seq", "op_seq") else sort
     rows = [r for r in ledger_rows if r["id"] in ids]

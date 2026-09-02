@@ -106,7 +106,7 @@ user (or their explicit instruction) decide with `review --include-id` /
   explicitly asks for billing-date semantics).
 - `--scope all|expenses|income` (default `all`, except `exclude_topics` which
   defaults to `expenses`).
-- `extract --sort seq|op_seq` (default `seq`), `--split-by month|quarter|year`,
+- `extract --sort seq|op_seq` (default `op_seq`), `--split-by month|quarter|year`,
   `--out PATH`, `--update`, `--force`.
 
 ## After running
