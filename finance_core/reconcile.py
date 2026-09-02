@@ -27,6 +27,18 @@ double-counted. Only *obviously mirrored* operations are removed:
    `assumed_category`): those are manual round advances to the card, not cycle
    settlements, so they are never hunted as CC charges.
 
+1b. Split ILS/FX settlement
+   Some cards settle one billing cycle across *two* rows instead of one: a bank
+   row for the cycle's ILS-only transactions plus an fx row for the rest (seen
+   historically on one FX-linked card). Neither leg alone equals the full cycle
+   total, so after every whole-cycle match above is exhausted, still-unresolved
+   bank/fx charge rows are paired by billing_date: a candidate card is one whose
+   ILS-only-transactions subtotal matches an unresolved bank leg, and whose
+   remaining (non-ILS) subtotal matches an unresolved fx leg's original-currency
+   amount. Only accepted when both legs are unambiguous (exactly one candidate
+   card, exactly one opposite-type leg that date); both legs are then dropped
+   and the card's transactions linked, same as a whole-cycle match.
+
 2. Mirrored transfer annihilation
    A transfer out of account A (-X) that has a matching transfer into account B
    (+X) around the same date is a self-transfer. Both legs are dropped and
@@ -61,6 +73,7 @@ def reconcile(records: list[dict]) -> tuple[list[dict], dict]:
         "cc_unmatched": 0,
         "transfers_annihilated": 0,
         "round_cc_reclassified": 0,
+        "cc_split_replaced": 0,
     }
     dropped: set[int] = set()
 
@@ -117,7 +130,7 @@ def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[li
        leg of every pair must be appended, so pure history is never touched.
 
     Returns (kept_records, stats)."""
-    stats = {"cc_replaced": 0, "transfers_annihilated": 0}
+    stats = {"cc_replaced": 0, "transfers_annihilated": 0, "cc_split_replaced": 0}
     appended_ids = {id(r) for r in appended}
     is_appended = lambda i: id(records[i]) in appended_ids
     dropped: set[int] = set()
@@ -125,6 +138,8 @@ def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[li
     # ------------------------------------------------ 1) cumulative CC charges
     groups: dict[tuple[str, str], list[int]] = defaultdict(list)
     group_sum: dict[tuple[str, str], float] = defaultdict(float)
+    group_ils_sum: dict[tuple[str, str], float] = defaultdict(float)
+    group_nonils_sum: dict[tuple[str, str], float] = defaultdict(float)
     group_serial: dict[tuple[str, str], float] = {}
     card_digits: dict[str, str] = {}
     for i, r in enumerate(records):
@@ -133,8 +148,13 @@ def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[li
         sk = r["source_key"]
         key = (sk, r.get("billing_date", ""))
         groups[key].append(i)
-        if r.get("amount_ils") is not None:
-            group_sum[key] += r["amount_ils"]
+        amt = r.get("amount_ils")
+        if amt is not None:
+            group_sum[key] += amt
+            if (r.get("currency_orig") or "ILS").strip() == "ILS":
+                group_ils_sum[key] += amt
+            else:
+                group_nonils_sum[key] += amt
         if r.get("billing_serial") is not None:
             group_serial[key] = r["billing_serial"]
         card_digits.setdefault(sk, re.sub(r"\D", "", sk))
@@ -173,6 +193,14 @@ def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[li
                 records[idx]["link_group"] = link
         dropped.add(i)
         stats["cc_replaced"] += 1
+
+    # 1b) split ILS/FX settlement (rule 1b): retry with whatever is still
+    # unresolved, same as the single-leg retry above - harmless since an
+    # unmatched_cc row never previously resolved.
+    still_unresolved = [i for i in charge_idxs if i not in dropped]
+    _match_split_cc_settlements(
+        records, still_unresolved, dropped, stats, groups, group_ils_sum, group_nonils_sum, consumed,
+    )
 
     # -------------------------------------------------- 2) mirrored transfers
     eligible = [
@@ -229,12 +257,15 @@ def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[li
 
 # ------------------------------------------------------------------- CC charges
 
-def _replace_cc_charges(records, dropped, stats) -> None:
-    # A credit-card billing cycle = all of a card's rows sharing one charge date
-    # (תאריך חיוב). Group by (card source_key, billing_date): that group is
-    # exactly what one bank "העברה לחברת כרטיסי אשראי" row settles.
+def _build_cc_groups(records):
+    """Group credit-card rows by (card source_key, billing_date): each group is
+    exactly what settles one billing cycle. Alongside the group's full ILS sum,
+    also split it into an ILS-only-transactions subtotal and the rest (for rule
+    1b's split-settlement matching)."""
     groups: dict[tuple[str, str], list[int]] = defaultdict(list)
     group_sum: dict[tuple[str, str], float] = defaultdict(float)
+    group_ils_sum: dict[tuple[str, str], float] = defaultdict(float)
+    group_nonils_sum: dict[tuple[str, str], float] = defaultdict(float)
     group_serial: dict[tuple[str, str], float] = {}
     card_digits: dict[str, str] = {}
 
@@ -244,13 +275,28 @@ def _replace_cc_charges(records, dropped, stats) -> None:
         sk = r["source_key"]
         key = (sk, r.get("billing_date", ""))
         groups[key].append(i)
-        if r.get("amount_ils") is not None:
-            group_sum[key] += r["amount_ils"]
+        amt = r.get("amount_ils")
+        if amt is not None:
+            group_sum[key] += amt
+            if (r.get("currency_orig") or "ILS").strip() == "ILS":
+                group_ils_sum[key] += amt
+            else:
+                group_nonils_sum[key] += amt
         if r.get("billing_serial") is not None:
             group_serial[key] = r["billing_serial"]
         card_digits.setdefault(sk, re.sub(r"\D", "", sk))
 
+    return groups, group_sum, group_serial, card_digits, group_ils_sum, group_nonils_sum
+
+
+def _replace_cc_charges(records, dropped, stats) -> None:
+    # A credit-card billing cycle = all of a card's rows sharing one charge date
+    # (תאריך חיוב). Group by (card source_key, billing_date): that group is
+    # exactly what one bank "העברה לחברת כרטיסי אשראי" row settles.
+    groups, group_sum, group_serial, card_digits, group_ils_sum, group_nonils_sum = _build_cc_groups(records)
+
     consumed: set[tuple[str, str]] = set()
+    unresolved: list[int] = []
 
     for i, r in enumerate(records):
         if r["source_type"] not in ("bank", "fx"):
@@ -278,8 +324,7 @@ def _replace_cc_charges(records, dropped, stats) -> None:
             cand_keys, group_sum, group_serial, consumed,
         )
         if match_key is None:
-            schema.add_flag(r, "unmatched_cc")
-            stats["cc_unmatched"] += 1
+            unresolved.append(i)
             continue
 
         consumed.add(match_key)
@@ -288,6 +333,67 @@ def _replace_cc_charges(records, dropped, stats) -> None:
             records[idx]["link_group"] = link
         dropped.add(i)
         stats["cc_replaced"] += 1
+
+    _match_split_cc_settlements(
+        records, unresolved, dropped, stats, groups, group_ils_sum, group_nonils_sum, consumed,
+    )
+
+    for i in unresolved:
+        if i in dropped:
+            continue
+        schema.add_flag(records[i], "unmatched_cc")
+        stats["cc_unmatched"] += 1
+
+
+def _match_split_cc_settlements(records, unresolved, dropped, stats,
+                                 groups, group_ils_sum, group_nonils_sum, consumed) -> None:
+    """Rule 1b: pair an unresolved bank leg with an unresolved fx leg on the same
+    billing_date when a single card's ILS-only subtotal matches the bank leg and
+    its remaining (non-ILS) subtotal matches the fx leg's original-currency
+    amount. Only accepted when unambiguous (one candidate card, one opposite-leg
+    candidate that date)."""
+    by_date: dict[str, dict[str, list[int]]] = defaultdict(lambda: {"bank": [], "fx": []})
+    for i in unresolved:
+        bill_date = records[i].get("billing_date", "")
+        if bill_date:
+            by_date[bill_date][records[i]["source_type"]].append(i)
+
+    matched: set[int] = set()
+    for bill_date, legs in by_date.items():
+        bank_idxs, fx_idxs = legs["bank"], legs["fx"]
+        if not bank_idxs or not fx_idxs:
+            continue
+        for bi in bank_idxs:
+            if bi in matched:
+                continue
+            bank_amt = records[bi].get("amount_ils")
+            if bank_amt is None:
+                continue
+            cand = [
+                key for key, total in group_ils_sum.items()
+                if key[1] == bill_date and key not in consumed
+                and abs(total - bank_amt) <= _amount_tol(bank_amt)
+            ]
+            if len(cand) != 1:
+                continue
+            key = cand[0]
+            nonils_total = group_nonils_sum.get(key, 0.0)
+            fx_hits = [
+                fi for fi in fx_idxs
+                if fi not in matched
+                and abs((records[fi].get("amount_orig") or 0.0) - nonils_total) <= _amount_tol(nonils_total or bank_amt)
+            ]
+            if len(fx_hits) != 1:
+                continue
+            fi = fx_hits[0]
+
+            consumed.add(key)
+            link = f"cc:{records[bi]['id']}+{records[fi]['id']}"
+            for idx in groups[key]:
+                records[idx]["link_group"] = link
+            dropped.update((bi, fi))
+            matched.update((bi, fi))
+            stats["cc_split_replaced"] += 1
 
 
 def _find_cc_group(charge, bill_date, bill_serial, cand_keys,

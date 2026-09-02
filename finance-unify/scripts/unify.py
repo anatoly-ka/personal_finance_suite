@@ -464,6 +464,7 @@ def main() -> int:
                 records, inc_stats["appended_rows"])
             print(f"[info] cross-boundary reconciliation: "
                   f"{xstats['cc_replaced']} cumulative CC charge(s) resolved, "
+                  f"{xstats['cc_split_replaced']} split ILS/FX CC settlement(s) resolved, "
                   f"{xstats['transfers_annihilated']} mirror transfer pair(s) annihilated.")
 
     # Shared merchant->category map: fill rows MyFinanda left unclassified.
@@ -564,6 +565,7 @@ def _summary(records, stats, mapped, inferred, applied, refund_stats, out_path, 
     print(f"cc charges replaced:       {stats['cc_replaced']}")
     print(f"cc charges unmatched:      {stats['cc_unmatched']}")
     print(f"round cc -> cash transfer: {stats.get('round_cc_reclassified', 0)}")
+    print(f"split ils/fx cc replaced:  {stats.get('cc_split_replaced', 0)}")
     print(f"transfers annihilated:     {stats['transfers_annihilated']} pairs")
     print(f"merchant categories set:   {mapped}")
     print(f"categories inferred:       {inferred}")

@@ -123,11 +123,12 @@ command-line argument > `finance.config.yaml` > the defaults above.
   reassigned a fresh unique sequence number on the same prefix. This makes
   partial-period exports safe: their per-sheet row counters cannot corrupt
   historical rows. A follow-up cross-boundary pass re-runs reconciliation
-  scoped to rows that crossed the boundary: cumulative CC charges whose card
-  rows live on the other side are settled and dropped (never double-counted
-  against their card transactions), and mirrored transfer pairs spanning runs
-  are annihilated. At least one leg of every resolved pair always comes from
-  the new export, so pure history is never rewritten.
+  scoped to rows that crossed the boundary: cumulative CC charges (including
+  split ILS/FX settlement pairs) whose card rows live on the other side are
+  settled and dropped (never double-counted against their card transactions),
+  and mirrored transfer pairs spanning runs are annihilated. At least one leg
+  of every resolved mirrored-transfer pair always comes from the new export,
+  so pure history is never rewritten.
 
 ## Reconciliation algorithm
 
@@ -170,7 +171,21 @@ doesn't clearly reconcile is kept as-is.
    behaves like any internal transfer (mirror-annihilated if its counterpart is
    in the file).
 
-2. **Mirrored self-transfers.**
+2. **Split ILS/FX credit-card settlement -> per-transaction rows.**
+   Some cards settle one billing cycle across *two* rows instead of one: a bank
+   row covering the cycle's ILS-only transactions plus an FX row covering the
+   rest (seen on an FX-linked card that billed part of its cycle through a
+   separate USD account). Once every whole-cycle match above is exhausted, any
+   still-unmatched bank/FX charge rows sharing a `billing_date` are paired: a
+   candidate card is one whose ILS-only-transactions subtotal matches the bank
+   leg and whose remaining (non-ILS) subtotal matches the FX leg's
+   original-currency amount. The pair is only accepted when unambiguous (one
+   candidate card, one opposite-leg candidate that date); both legs are then
+   **dropped** and the card's transactions tagged `link_group =
+   cc:<bank id>+<fx id>`, same as a whole-cycle match. Anything left unresolved
+   still falls back to `unmatched_cc`.
+
+3. **Mirrored self-transfers.**
    A pair is annihilated only when it is *obviously* mirrored:
    - both rows are internal-transfer categories (`ענף` in a known set:
      `העברת מזומן`, `העברות פנימיות - שונות`, `העברת מט"ח`, `העברת חיסכון`),
