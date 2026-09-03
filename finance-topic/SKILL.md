@@ -6,6 +6,9 @@ disable-model-invocation: true
 
 # finance-topic (Skill 2)
 
+> Part of [personal-finance-suite](../SKILL.md). The invocable suite router
+> reads this procedure document before handling topic-extraction work.
+
 Pull a topic-related subset of rows out of the ledger `finance-unify` built,
 into its own new CSV, keeping the original row ids untouched. Never modifies
 `data/ledger.csv` (or any other finance-unify output). See
@@ -127,4 +130,3 @@ After `extract`, report the output path(s) and row count. Never edit
   (optional to edit; see README.md).
 - Topic specs (`data/topics/<name>.json`) are managed entirely through this
   CLI - there is no need for anyone to hand-edit them.
-- After editing the skill source, redeploy with `powershell -File deploy.ps1`.

@@ -5,6 +5,29 @@ ledger, curated topics, and chart-bearing analysis workbooks - plus
 `finance_core/`, the shared library code they all import (not a skill you
 invoke directly).
 
+## Install
+
+Install the suite in a directory named exactly `personal-finance-suite`,
+directly under your agent's skills root. Supported examples include
+`~/.agents/skills`, `~/.claude/skills`, `~/.config/opencode/skills`, and
+`~/.cursor/skills`.
+
+```bash
+git clone https://github.com/anatoly-ka/personal_finance_suite.git ~/.agents/skills/personal-finance-suite
+```
+
+```powershell
+git clone https://github.com/anatoly-ka/personal_finance_suite.git "$env:USERPROFILE\.agents\skills\personal-finance-suite"
+```
+
+For a ZIP download, GitHub extracts a nested `<repo>-main/` directory. Create
+or rename the destination to `personal-finance-suite`, then move the contents
+of the extracted directory into it. `SKILL.md` must sit directly inside
+`personal-finance-suite`, not inside the archive's extra directory.
+
+Restart your agent environment and ask, "what skills are available?" Confirm
+that `personal-finance-suite` appears in the response.
+
 ## Pipeline
 
 ```
@@ -29,6 +52,21 @@ topics read-only and owns `data/analysis/`.
 | **finance-analyze** (Skill 3) | Aggregates one topic - or a suite of topics - into an `.xlsx` workbook with native pie/column charts, a details drill-down, a reconciliation sheet, and 3D comparison charts across comparable topics. Always plans before it generates anything. | [finance-analyze/README.md](finance-analyze/README.md) |
 | `finance_core/` | Shared Python library the three skills import (ledger schema, reconciliation, taxonomy, topic recipes, report writer). Not invoked directly. | - |
 
+## Suite layout
+
+```
+personal-finance-suite/
+    SKILL.md             invocable router for the three-stage pipeline
+    finance_core/        shared Python library and default data
+    finance-unify/       ledger-building procedure and merchant map
+    finance-topic/       topic extraction procedure
+    finance-analyze/     analysis-workbook procedure
+```
+
+Keeping the related skills in one suite folder prevents top-level `README.md`
+and skill-name collisions. The root router is the discovery entry point; it
+reads the relevant child `SKILL.md` and delegates the requested pipeline stage.
+
 ## Project & environment conventions
 
 All three skills operate inside a **project** - one folder per dataset (e.g.
@@ -39,11 +77,11 @@ it separate from wherever the skills themselves live, e.g.
 `~/Projects/<name>-finance/` (Linux/macOS). If the data is sensitive, keep it
 local; no git repository is created by these skills.
 
-**Where the skills themselves live** depends on your agent environment - this
-suite is deployed under `~/.agents/skills/` here (Cursor, for example, would
-use `~/.cursor/skills/` instead). Whenever a per-skill README shows a path
-rooted at the skills folder (the shared `finance_core/`,
-`finance-unify/merchant_categories.csv`, etc.), substitute your own.
+**Where the suite lives** depends on your agent environment. Here its root is
+`~/.agents/skills/personal-finance-suite/`; Cursor, for example, could use
+`~/.cursor/skills/personal-finance-suite/`. Whenever a per-skill README shows
+a suite path (the shared `finance_core/`,
+`finance-unify/merchant_categories.csv`, etc.), substitute your own suite root.
 
 You never need to open, view, or hand-edit any of these files yourself -
 everything happens through plain-English requests to the assistant, which
@@ -53,8 +91,8 @@ troubleshooting.
 
 ## Editing these skills
 
-These skills run directly from their skills folder - there is no separate
-build or deploy step. Edit files under `finance_core/`, `finance-unify/`,
+These skills run directly from the suite folder - there is no separate build
+or deploy step. Edit `SKILL.md`, `finance_core/`, `finance-unify/`,
 `finance-topic/`, or `finance-analyze/` in place; changes take effect on the
 very next run.
 

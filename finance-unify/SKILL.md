@@ -6,6 +6,9 @@ disable-model-invocation: true
 
 # finance-unify (Skill 1)
 
+> Part of [personal-finance-suite](../SKILL.md). The invocable suite router
+> reads this procedure document before handling ledger-unification work.
+
 Consolidate a MyFinanda `.xlsx` export into one unified transaction ledger. See
 [README.md](README.md) for the full overview and field mapping.
 
@@ -63,8 +66,7 @@ offer to fix specific rows via `--set`.
 If the summary prints a `[note] ... not in the shared merchant map`, **offer to
 promote** those corrections: re-run with `--promote-corrections` so the
 merchant->category pairs are added to `merchant_categories.csv` and reused in
-every project. (In this dev setup, keep the source copy in sync and redeploy so
-the promotion survives the next deploy.)
+every project.
 
 ## Notes
 - Runs inside a project (one per dataset); all data files live under
@@ -83,4 +85,3 @@ the promotion survives the next deploy.)
   for the optional `--xlsx` mirror is used only if already present.)
 - Skill 2 (topic extraction) is implemented - see `finance-topic`. Skill 3
   (expense analysis) is implemented too - see `finance-analyze`.
-- After editing the skill source, redeploy with `powershell -File deploy.ps1`.

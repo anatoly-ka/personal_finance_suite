@@ -47,7 +47,7 @@ Windows (PowerShell):
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\Projects\home-finance\data\source" | Out-Null
 Copy-Item "$env:USERPROFILE\Downloads\MyFinandaExport.xlsx" "$env:USERPROFILE\Projects\home-finance\data\source\"
-python "$env:USERPROFILE\.agents\skills\finance-unify\scripts\unify.py" --project "$env:USERPROFILE\Projects\home-finance"
+python "$env:USERPROFILE\.agents\skills\personal-finance-suite\finance-unify\scripts\unify.py" --project "$env:USERPROFILE\Projects\home-finance"
 ```
 
 Linux/macOS (bash):
@@ -55,7 +55,7 @@ Linux/macOS (bash):
 ```bash
 mkdir -p ~/Projects/home-finance/data/source
 cp ~/Downloads/MyFinandaExport.xlsx ~/Projects/home-finance/data/source/
-python ~/.agents/skills/finance-unify/scripts/unify.py --project ~/Projects/home-finance
+python ~/.agents/skills/personal-finance-suite/finance-unify/scripts/unify.py --project ~/Projects/home-finance
 ```
 
 ## What it does
@@ -98,8 +98,8 @@ default: current directory):
 
 The **merchant map** (`merchant_categories.csv`) is *not* per-project - it ships
 with the skill and is shared across all projects:
-- Windows: `%USERPROFILE%\.agents\skills\finance-unify\merchant_categories.csv`
-- Linux/macOS: `~/.agents/skills/finance-unify/merchant_categories.csv`
+- Windows: `%USERPROFILE%\.agents\skills\personal-finance-suite\finance-unify\merchant_categories.csv`
+- Linux/macOS: `~/.agents/skills/personal-finance-suite/finance-unify/merchant_categories.csv`
 
 Any path can be overridden on the command line. Path resolution order:
 command-line argument > `finance.config.yaml` > the defaults above.
@@ -275,8 +275,8 @@ category_to_bucket:
 Guidelines:
 - Edit the **per-project** `category_map.yaml`, not the master (that one is the
   shared fallback):
-  - Windows: `%USERPROFILE%\.agents\skills\finance_core\data\category_map.yaml`
-  - Linux/macOS: `~/.agents/skills/finance_core/data/category_map.yaml`
+  - Windows: `%USERPROFILE%\.agents\skills\personal-finance-suite\finance_core\data\category_map.yaml`
+  - Linux/macOS: `~/.agents/skills/personal-finance-suite/finance_core/data/category_map.yaml`
 - A `category_to_bucket` override wins over `group_to_bucket` for the same row.
 - Leave `group_to_bucket` at identity to keep a group as its own bucket.
 - Usually leave `category_to_group` alone (it mirrors the export).

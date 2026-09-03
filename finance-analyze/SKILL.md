@@ -6,6 +6,9 @@ disable-model-invocation: true
 
 # finance-analyze (Skill 3)
 
+> Part of [personal-finance-suite](../SKILL.md). The invocable suite router
+> reads this procedure document before handling analysis-workbook work.
+
 Analyze a `finance-topic` selection - one topic, or a suite analyzed as their
 union - into a chart-bearing `.xlsx` workbook. Read-only: never touches
 `data/ledger.csv` or any topic file. See [README.md](README.md) for the full
