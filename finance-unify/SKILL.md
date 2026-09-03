@@ -21,6 +21,12 @@ Consolidate a MyFinanda `.xlsx` export into one unified transaction ledger. See
 The skill runs inside a project (one project per dataset). Defaults are relative
 to the project root; any path can be overridden.
 
+For a new or incremental export, copy the `.xlsx` into
+`<project>/data/source/` before running the importer. This is the project's
+canonical source archive: do not place exports in the project root. Before an
+incremental run, verify that `data/source/` contains the intended newest export.
+Use `--source` for a deliberate one-off file only.
+
 ```bash
 # Standalone: build data/ledger.csv from the newest export in data/source/
 python scripts/unify.py --project <PROJECT_DIR>

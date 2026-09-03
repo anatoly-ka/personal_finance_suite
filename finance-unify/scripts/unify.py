@@ -95,6 +95,14 @@ def pick_source(source_arg: str, source_dir: str) -> str:
     return max(candidates, key=os.path.getmtime)
 
 
+def source_is_within(source: str, source_dir: str) -> bool:
+    """Return whether source is inside the configured project source directory."""
+    try:
+        return os.path.commonpath((os.path.realpath(source), os.path.realpath(source_dir))) == os.path.realpath(source_dir)
+    except ValueError:
+        return False
+
+
 # ------------------------------------------------------------------- building
 
 def build_records(sheets) -> tuple[list[dict], dict]:
@@ -443,6 +451,9 @@ def main() -> int:
 
     source = pick_source(args.source, source_dir)
     print(f"[info] source: {source}")
+    if args.incremental and args.source and not source_is_within(source, source_dir):
+        print(f"[warn] incremental source is outside the project source archive ({source_dir}): {source}")
+        print("[warn] copy future exports into data/source/ so default incremental runs select the newest archive file.")
 
     sheets = io_xlsx.read_workbook(source)
     records, stats = build_records(sheets)

@@ -104,6 +104,12 @@ with the skill and is shared across all projects:
 Any path can be overridden on the command line. Path resolution order:
 command-line argument > `finance.config.yaml` > the defaults above.
 
+For every new export, including an incremental update, copy the workbook into
+`data/source/` first. Keep source workbooks there as the project's input
+archive; do not place them in the project root. `--source` is available for a
+deliberate one-off input outside that archive, but the importer warns about this
+during incremental runs so it cannot silently become the project's normal flow.
+
 ## Modes
 - **Standalone**: build a fresh ledger from a source file.
 - **Incremental** (`--incremental`): extend an existing `data/ledger.csv` with a
