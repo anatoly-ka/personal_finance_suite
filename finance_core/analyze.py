@@ -160,6 +160,95 @@ def _add(entry: dict, rec: dict) -> None:
     entry["net"] = entry["income"] - entry["expenses"]
 
 
+def _month_labels(start: str, end: str) -> list[str]:
+    year, month = (int(part) for part in start.split("-"))
+    end_year, end_month = (int(part) for part in end.split("-"))
+    labels = []
+    while (year, month) <= (end_year, end_month):
+        labels.append(f"{year:04d}-{month:02d}")
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return labels
+
+
+def build_monthly_matrix(rows: list[dict], month_range: tuple[str, str]) -> dict:
+    """Return expense-group totals for every requested month, including zero months."""
+    labels = _month_labels(*month_range)
+    values: dict[str, dict[str, float]] = {label: {} for label in labels}
+    group_totals: dict[str, float] = {}
+    for row in rows:
+        if row["side"] != "expense" or row.get("period") not in values:
+            continue
+        group = row.get("group") or row.get("category") or "(uncategorized)"
+        amount = -(row.get("amount_ils") or 0.0)
+        values[row["period"]][group] = values[row["period"]].get(group, 0.0) + amount
+        group_totals[group] = group_totals.get(group, 0.0) + amount
+    groups = sorted(group_totals, key=lambda group: (-group_totals[group], group))
+    matrix_rows = []
+    for label in labels:
+        row_values = {group: round(values[label].get(group, 0.0), 2) for group in groups}
+        matrix_rows.append({"label": label, "values": row_values, "total": round(sum(row_values.values()), 2)})
+    divisor = len(labels) or 1
+    totals = {group: round(sum(row["values"][group] for row in matrix_rows), 2) for group in groups}
+    matrix_rows.append({"label": "Average", "values": {group: round(totals[group] / divisor, 2) for group in groups},
+                        "total": round(sum(totals.values()) / divisor, 2)})
+    matrix_rows.append({"label": "Total", "values": totals, "total": round(sum(totals.values()), 2)})
+    return {"groups": groups, "rows": matrix_rows, "month_count": len(labels)}
+
+
+def build_trip_comparison(reports: list[dict], specs: list[dict]) -> dict:
+    """Summarize approved trip topics and their continuous transaction-month costs."""
+    type_for_kind = {"trip_abroad": "Trip", "trip_local": "Vacation"}
+    report_by_name = {report["label"]: report for report in reports}
+    rows = []
+    months: list[str] = []
+    for spec in specs:
+        report = report_by_name.get(spec["topic"])
+        if report is None:
+            continue
+        dates = sorted(row.get("date_iso") or "" for row in report["rows"] if row.get("date_iso"))
+        months.extend(row.get("period") or "" for row in report["rows"] if row.get("period"))
+        rows.append({
+            "topic": spec["topic"],
+            "type": type_for_kind[spec["kind"]],
+            "first_date": dates[0] if dates else "",
+            "last_date": dates[-1] if dates else "",
+            "expense_rows": report["totals"]["expense_rows"],
+            "cost_ils": report["totals"]["expenses"],
+            "periods": {entry["label"]: entry["expenses"] for entry in report["by_period"]},
+        })
+    labels = _month_labels(min(months), max(months)) if months else []
+    for row in rows:
+        periods = row.pop("periods")
+        row["monthly"] = {label: periods.get(label, 0.0) for label in labels}
+    trip_rows = [row for row in rows if row["type"] == "Trip"]
+    vacation_rows = [row for row in rows if row["type"] == "Vacation"]
+    trip_total = round(sum(row["cost_ils"] for row in trip_rows), 2)
+    vacation_total = round(sum(row["cost_ils"] for row in vacation_rows), 2)
+    monthly_rows = []
+    for label in labels:
+        values = {row["topic"]: round(row["monthly"][label], 2) for row in rows}
+        monthly_rows.append({"label": label, "values": values, "total": round(sum(values.values()), 2)})
+    divisor = len(labels) or 1
+    totals = {row["topic"]: round(row["cost_ils"], 2) for row in rows}
+    monthly_rows.extend((
+        {"label": "Average", "values": {topic: round(value / divisor, 2) for topic, value in totals.items()},
+         "total": round(sum(totals.values()) / divisor, 2)},
+        {"label": "Total", "values": totals, "total": round(sum(totals.values()), 2)},
+    ))
+    return {
+        "topics": [row["topic"] for row in rows],
+        "summary_rows": rows,
+        "monthly_rows": monthly_rows,
+        "month_count": len(labels),
+        "trip_count": len(trip_rows),
+        "vacation_count": len(vacation_rows),
+        "trip_total": trip_total,
+        "vacation_total": vacation_total,
+        "average_trip_cost": round(trip_total / len(trip_rows), 2) if trip_rows else 0.0,
+        "average_vacation_cost": round(vacation_total / len(vacation_rows), 2) if vacation_rows else 0.0,
+    }
+
+
 def build_report(
     rows: list[dict],
     *,
@@ -175,6 +264,7 @@ def build_report(
     row_topics: dict | None = None,
     extra_notes: dict | None = None,
     force_include: set[str] | None = None,
+    monthly_matrix_range: tuple[str, str] | None = None,
 ) -> dict:
     """Aggregate resolved ledger rows into the report structures.
 
@@ -298,6 +388,7 @@ def build_report(
     ) or any(e["label"] != g_e["label"]
              for e, g_e in zip(by_bucket, by_group))
     effective_dim = chart_dim if (chart_dim == "group" or bucket_differs) else "group"
+    monthly_matrix = build_monthly_matrix(enriched, monthly_matrix_range) if monthly_matrix_range else None
 
     return {
         "label": label,
@@ -313,6 +404,7 @@ def build_report(
         "by_group": by_group,
         "by_period": by_period,
         "bucket_differs": bucket_differs,
+        "monthly_matrix": monthly_matrix,
         "totals": totals,
         "notes": notes,
     }
@@ -391,6 +483,10 @@ def planned_sheet_names(report: dict, comparison: dict | None = None) -> list[st
     else:  # identity buckets would just duplicate the groups
         sheets.append("By group")
     sheets.append("By period")
+    if report.get("monthly_matrix"):
+        sheets.append("Monthly comparison")
+    if report.get("trip_comparison"):
+        sheets += ["Trip summary", "Trip monthly costs"]
     sheets.append("Details")
     sheets.append("Reconciliation")
     if comparison:

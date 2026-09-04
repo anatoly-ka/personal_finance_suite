@@ -276,27 +276,36 @@ def bind_refunds(records: list[dict]) -> dict:
 _REFUND_FLAGS = {"refund", "assumed_refund"}
 
 
-def annihilate_bound_pairs(rows: list[dict]) -> tuple[list[dict], list[dict], dict]:
-    """Drop bound refund<->expense pairs whose BOTH legs are present in `rows`.
+def annihilate_bound_pairs(rows: list[dict], ledger_rows: list[dict] | None = None) -> tuple[list[dict], list[dict], dict]:
+    """Drop selected legs of valid bound refund<->expense pairs.
 
     Skill 1 binds each matched refund to the expense it reverses via a
     bidirectional `reference` link (the refund leg carries flag `refund` or
-    `assumed_refund`). Spending analysis wants net figures, so such a pair
-    cancels - but only when it can cancel *within the analyzed set*: a pair
-    straddling two topics (a December expense refunded in January) keeps both
-    legs intact whenever either one is outside the set. Nothing is ever
-    removed from the ledger itself; this is an analysis-time view only.
+    `assumed_refund`). By default, only pairs whose both legs occur in `rows`
+    are removed. Passing `ledger_rows` resolves partners against the full
+    ledger, allowing a selected expense or refund to be removed even if its
+    counterpart is outside the selected period. Nothing is ever removed from
+    the ledger itself; this is an analysis-time view only.
 
-    Returns (kept_rows, dropped_rows, stats); stats counts pairs and the ILS
-    totals of each removed side (they offset by construction).
+    Returns (kept_rows, dropped_rows, stats). The totals in stats describe
+    selected rows actually removed; `external_partners` records counterparts
+    outside that selection for reconciliation reporting.
     """
-    by_id = {r["id"]: r for r in rows if r.get("id")}
+    universe = ledger_rows if ledger_rows is not None else rows
+    by_id = {r["id"]: r for r in universe if r.get("id")}
+    selected_by_id = {r["id"]: r for r in rows if r.get("id")}
     dropped: set[str] = set()
-    stats = {"pairs": 0, "refunds_ils": 0.0, "expenses_ils": 0.0}
+    stats = {
+        "pairs": 0,
+        "cross_scope_pairs": 0,
+        "refunds_ils": 0.0,
+        "expenses_ils": 0.0,
+        "external_partners": [],
+    }
 
-    for r in rows:
+    for r in universe:
         rid = r.get("id")
-        if not rid or rid in dropped:
+        if not rid:
             continue
         if r.get("source_type") != "credit-card":
             continue
@@ -312,11 +321,23 @@ def annihilate_bound_pairs(rows: list[dict]) -> tuple[list[dict], list[dict], di
             back = {p.strip() for p in (partner.get("reference") or "").split(";")}
             if rid not in back:
                 continue  # reference points elsewhere / one-directional
-            ref_ils = float(r.get("amount_ils") or 0.0)
-            dropped.update((rid, partner["id"]))
+            selected_legs = [rec for rec in (r, partner) if rec["id"] in selected_by_id]
+            if not selected_legs:
+                continue
+            for rec in selected_legs:
+                if rec["id"] in dropped:
+                    continue
+                dropped.add(rec["id"])
+                amount = float(rec.get("amount_ils") or 0.0)
+                if amount > 0:
+                    stats["refunds_ils"] += amount
+                else:
+                    stats["expenses_ils"] += amount
             stats["pairs"] += 1
-            stats["refunds_ils"] += ref_ils
-            stats["expenses_ils"] += float(exp_ils)
+            if len(selected_legs) == 1:
+                stats["cross_scope_pairs"] += 1
+                stats["external_partners"].append(
+                    partner if selected_legs[0] is r else r)
             break
 
     kept = [r for r in rows if r.get("id") not in dropped]

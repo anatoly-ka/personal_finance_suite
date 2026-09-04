@@ -56,6 +56,16 @@ def _default_out(project: str, label: str) -> str:
     return os.path.join(project, "data", "analysis", f"{label}.xlsx")
 
 
+def _valid_month(value: str) -> bool:
+    if len(value) != 7 or value[4] != "-":
+        return False
+    try:
+        year, month = value.split("-")
+        return len(year) == 4 and 1 <= int(month) <= 12
+    except ValueError:
+        return False
+
+
 def _topic_span(rows: list[dict]) -> str:
     dates = sorted(r.get("date_iso") or "" for r in rows if r.get("date_iso"))
     return f"{dates[0]} .. {dates[-1]}" if dates else "-"
@@ -96,6 +106,10 @@ def _plan_lines(report: dict, comparison: dict | None, context: dict,
         lines.append(
             f"[plan] refunds    : {st['pairs']} bound pair(s) {verb} "
             f"({analyze.fmt_ils(st.get('refunds_ils'))} of refunds)")
+        if st.get("cross_scope_pairs"):
+            lines.append(
+                f"[plan]              {st['cross_scope_pairs']} pair(s) cross the selected "
+                "range; selected legs will be removed using full-ledger links")
     else:
         lines.append(f"[plan] refunds    : no bound pair(s) ({refunds_mode})")
     unmatched_income = t["income_rows"]
@@ -104,9 +118,9 @@ def _plan_lines(report: dict, comparison: dict | None, context: dict,
         f"leg(s) excluded from sums ({analyze.fmt_ils(t['transfers_ils'])})")
     lines.extend(_detail_lines(n["transfers"]))
     if n.get("forced_include"):
-        lines.append(
-            f"[plan] overrides  : {len(n['forced_include'])} id(s) forced OUT of "
-            f"transfers into expense/income by --force-include")
+        reason = "approved trip-topic row(s) included" if context.get("trip_comparison") else \
+            "id(s) forced OUT of transfers into expense/income by --force-include"
+        lines.append(f"[plan] overrides  : {len(n['forced_include'])} {reason}")
         lines.extend(_detail_lines(n["forced_include"]))
     lines.append(
         f"[plan] fx gaps    : {len(n['fx_gap'])} no_fx_rate row(s) cannot be "
@@ -131,9 +145,14 @@ def _plan_lines(report: dict, comparison: dict | None, context: dict,
         lines.append(
             f"[plan] comparison : DETECTED - {context.get('compare_reason', '')}"
             f" -> Compare sheets + clustered BarChart3D / PieChart3D")
-    elif len(context.get("topics_meta") or []) > 1:
+    elif len(context.get("topics_meta") or []) > 1 and not context.get("trip_comparison"):
         lines.append(
             f"[plan] comparison : skipped - {context.get('compare_reason', 'not similar')}")
+    trip = report.get("trip_comparison")
+    if trip:
+        lines.append(
+            f"[plan] trips      : {trip['trip_count']} trip(s), {trip['vacation_count']} vacation(s); "
+            f"{trip['month_count']} continuous transaction month(s)")
     lines.append(f"[plan] output     : {out_path}")
     for w in n["warnings"]:
         lines.append(f"[plan] WARNING    : {w}")
@@ -234,27 +253,65 @@ def run(args) -> int:
     elif args.split_dates:
         print("[warn] --split-dates is ignored unless --split-by custom.")
 
+    if args.monthly_matrix:
+        if args.scope != "expenses" or args.split_by != "month":
+            print("[error] --monthly-matrix requires --scope expenses and --split-by month.")
+            return 2
+        if not args.month_range:
+            print("[error] --monthly-matrix requires --month-range START,END (YYYY-MM,YYYY-MM).")
+            return 2
+        month_parts = _split_multi([args.month_range])
+        if len(month_parts) != 2 or any(not _valid_month(value) for value in month_parts):
+            print("[error] --month-range must contain exactly two YYYY-MM values.")
+            return 2
+        if month_parts[0] > month_parts[1]:
+            print("[error] --month-range start must not be after its end.")
+            return 2
+        args.month_range = tuple(month_parts)
+    elif args.month_range:
+        print("[warn] --month-range is ignored unless --monthly-matrix is set.")
+
+    if args.trip_comparison:
+        if not args.topics or args.scope != "expenses" or args.split_by != "month" \
+                or args.split_date_field != "date_iso":
+            print("[error] --trip-comparison requires --topics, --scope expenses, "
+                  "--split-by month, and --split-date-field date_iso.")
+            return 2
+        non_trip = [spec["topic"] for spec in specs if spec.get("kind") not in analyze.TRIP_KINDS]
+        if non_trip:
+            print("[error] --trip-comparison only accepts trip_abroad/trip_local topics; "
+                  f"not trips: {', '.join(non_trip)}")
+            return 2
+        if args.monthly_matrix:
+            print("[error] --trip-comparison cannot be combined with --monthly-matrix.")
+            return 2
+
     # ---- refund annihilation (suite-wide, before any partitioning) -------
     extra_notes: dict = {"stale_ids": stale}
     refunds_mode = args.refunds
-    _, would_drop, stats = refunds.annihilate_bound_pairs(resolved)
+    refund_ledger = rows_all if args.refund_scope == "ledger" else None
+    _, would_drop, stats = refunds.annihilate_bound_pairs(resolved, refund_ledger)
     if refunds_mode == "annihilate":
         dropped_ids = {id(r) for r in would_drop}
         kept = [r for r in resolved if id(r) not in dropped_ids]
         extra_notes["annihilated"] = would_drop
         extra_notes["annihilated_stats"] = stats
+        extra_notes["external_refund_partners"] = stats["external_partners"]
     else:
         kept, dropped = resolved, []
 
     mapping, map_path = analyze.load_category_map(project, args.category_map)
 
     force_include = set(_split_multi([args.force_include] if args.force_include else []))
+    if args.trip_comparison:
+        force_include.update(union_ids)
 
     label = "+".join(ordered_names)
     common = dict(scope=args.scope, split_by=args.split_by,
                   date_field=args.split_date_field, split_dates=split_dates,
                   phase_ranges=phase_ranges, force_include=force_include,
-                  chart_dim=args.chart_dim, top_n=args.top_n, mapping=mapping)
+                  chart_dim=args.chart_dim, top_n=args.top_n, mapping=mapping,
+                  monthly_matrix_range=args.month_range if args.monthly_matrix else None)
     report = analyze.build_report(
         kept, label=label, row_topics=row_topics, extra_notes=extra_notes, **common)
 
@@ -266,10 +323,13 @@ def run(args) -> int:
             sub_reports.append(analyze.build_report(
                 t_rows, label=s["topic"], **common))
 
+    if args.trip_comparison:
+        report["trip_comparison"] = analyze.build_trip_comparison(sub_reports, specs)
+
     # ---- comparison decision ---------------------------------------------
     comparison = None
     compare_reason = ""
-    if len(specs) > 1:
+    if len(specs) > 1 and not args.trip_comparison:
         similar, compare_reason = analyze.detect_similarity(specs)
         if args.compare != "never" and (args.compare == "always" or similar):
             dims = []
@@ -292,6 +352,7 @@ def run(args) -> int:
         "ledger_path": ledger_path,
         "topics_meta": topics_meta,
         "refunds_mode": refunds_mode,
+        "refund_scope": args.refund_scope,
         "compare_note": (("on - " + compare_reason) if comparison else compare_reason),
         "compare_reason": compare_reason,
         "category_map_path": map_path,
@@ -300,6 +361,7 @@ def run(args) -> int:
         "resolved_count": len(resolved),
         "phase_ranges": phase_topic_ranges,
         "split_dates": split_dates,
+        "trip_comparison": args.trip_comparison,
     }
 
     out_path = args.out or _default_out(project, label)
@@ -379,6 +441,15 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--refunds", choices=["annihilate", "keep"], default="annihilate",
                     help="Annihilate bound refund<->expense pairs inside the analyzed set "
                          "(default) or keep both legs visible.")
+    ap.add_argument("--refund-scope", choices=["selected", "ledger"], default="selected",
+                    help="selected: only annihilate pairs whose both legs are selected (default); "
+                        "ledger: also remove a selected leg whose bound counterpart is outside the selection.")
+    ap.add_argument("--monthly-matrix", action="store_true",
+                    help="Add a monthly expense-group comparison table and charts; requires expenses/month.")
+    ap.add_argument("--month-range",
+                    help="Inclusive YYYY-MM,YYYY-MM range for --monthly-matrix, including zero-spend months.")
+    ap.add_argument("--trip-comparison", action="store_true",
+                    help="Add trip/vacation cost and transaction-month comparison sheets for approved trip topics.")
     ap.add_argument("--force-include", dest="force_include",
                     help="Comma-separated row id(s) to count as expense/income even though "
                          "their category/group would normally exclude them as an internal "

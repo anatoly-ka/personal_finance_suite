@@ -171,35 +171,35 @@ yet.
 pending. It writes `data/topics/usa-2026.csv` (same columns as the ledger,
 original ids/`seq`/`op_seq` untouched) and reports the final row count.
 
-### 7. Create monthly expense topics, excluding trips
-> "Create one expense topic per calendar month for 2026, excluding anything
-> already part of a trip topic like usa-2026."
+### 7. Create a monthly-expense analysis topic
+> "Create an expense topic for January through December 2026, excluding my
+> Mortgage topic and all approved trip and vacation topics. Split it by billing
+> month later in the analysis."
 
-**Expected result:** the assistant creates twelve `exclude_topics` topics
-(e.g. `exp-2026-01` ... `exp-2026-12`), one per month, each subtracting every
-approved row from any trip topic in the project (auto-discovered - no need to
-name `usa-2026` explicitly). Twelve files land under `data/topics/`, each
-holding that month's non-trip expenses.
+**Expected result:** the assistant creates one `exclude_topics` topic covering
+the requested billing-date range. It subtracts the approved rows from Mortgage
+and every trip topic, leaving a reproducible definition of ordinary expenses
+without maintaining a separate topic file for every month.
 
-### 8. Plan a month-by-month, per-category comparison
-> "Plan a comparative analysis of the 2026 monthly expense topics, broken
-> down by category, comparing month over month."
+### 8. Plan a billing-date monthly group comparison
+> "Plan a comparative analysis of ordinary expenses from January through
+> December 2026. Split on billing date, exclude refunded items even when their
+> counterpart is outside the period, and add a monthly expense-group table with
+> Average and Total rows plus comparison charts."
 
-**Expected result:** the assistant runs finance-analyze with all twelve
-monthly topics as a suite and `--plan`. Because they all share the same
-topic kind, comparison is auto-detected; the printed plan lists all twelve
-inputs resolved, refund/transfer/fx-gap counts, totals, and the sheet list
-`Overview | By bucket | By group | By period | Details | Reconciliation |
-Compare bucket | Compare period` - `Compare bucket` is the month-by-category
-matrix you asked for. Nothing is written to disk yet.
+**Expected result:** the assistant runs finance-analyze with `--plan`,
+`--split-date-field billing_date`, `--refund-scope ledger`, and
+`--monthly-matrix --month-range 2026-01,2026-12`. The printed plan lists the
+input topic, refund/transfer/fx-gap counts, and the `Monthly comparison` sheet
+alongside the standard report sheets. Nothing is written to disk yet.
 
-### 9. Fix the plan
-> "Actually, split on the billing date instead of the transaction date, and
-> keep refund pairs visible instead of cancelling them."
+### 9. Refine the plan
+> "Actually, keep refund pairs visible instead of cancelling them, and show
+> the period on transaction date instead."
 
-**Expected result:** the assistant re-plans with `--split-date-field
-billing_date --refunds keep` added, and prints an updated plan reflecting
-both changes - still nothing written - so you can confirm before generating.
+**Expected result:** the assistant re-plans with `--split-date-field date_iso
+--refunds keep` and prints an updated plan reflecting both changes - still
+nothing is written - so you can confirm before generating.
 
 ### 10. Approve the plan and generate the analysis
 > "The plan looks good now - generate the workbook."
@@ -252,13 +252,12 @@ it reports the topic is already up to date; if new candidates appear (e.g. a
 late toll charge that just settled) it confirms any newly-pending ones with
 you, then runs `extract --update` to refresh `usa-2026.csv`.
 
-### 15. Update the monthly topics
-> "Update the monthly expense topics with the new data."
+### 15. Update the monthly-expense analysis topic
+> "Update the ordinary-expenses topic with the new data."
 
 **Expected result:** the assistant re-runs `propose`/`extract --update` for
-each of the twelve `exp-2026-*` topics, picking up any new transactions from
-the incremental export and correctly excluding anything just confirmed part
-of the USA trip in step 14.
+the one date-range topic, picking up new ledger rows while continuing to
+exclude Mortgage and anything just confirmed as part of a trip.
 
 ### 16. Update the analysis
 > "Update the monthly expense analysis with the latest data."
@@ -267,3 +266,15 @@ of the USA trip in step 14.
 from steps 10/11 with `--update`, regenerating `data/analysis/<label>.xlsx`
 from the now-current ledger and topics, and reports the refreshed headline
 totals.
+
+### 17. Compare approved trips and vacations
+> "Plan a comparison of all approved trips and vacations by transaction month.
+> Include every selected topic item, show each trip's cost, average trip and
+> vacation costs, monthly averages, and comparison charts."
+
+**Expected result:** the assistant uses finance-analyze's trip-comparison mode.
+It treats the reviewed topic rows as authoritative, including any cash/FX
+withdrawal already approved into a trip topic. The plan describes the `Trip
+summary` and `Trip monthly costs` sheets, which show costs per topic, averages
+for trips and vacations, continuous `date_iso` months (including zero months),
+and native comparison charts before a workbook is generated.

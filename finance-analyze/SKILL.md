@@ -53,6 +53,16 @@ topic extraction - create a `custom` topic with `finance-topic propose`
   `--split-dates D1,D2,...` boundaries.
 - `--split-date-field date_iso|billing_date` (default `billing_date`) - which
   ledger date column drives every period split above.
+- `--refund-scope selected|ledger` (default `selected`) - with `ledger`, remove
+  a selected refund or expense whose bound counterpart lies outside the topic or
+  date range; use this for period reports that must not count later-refunded spend.
+- `--monthly-matrix --month-range YYYY-MM,YYYY-MM` - for an expense/month
+  report, add a month-by-group table with `Average` and `Total` rows, including
+  zero-spend months, plus comparison charts.
+- `--trip-comparison` - for a suite of approved `trip_abroad`/`trip_local`
+  topics, add per-topic trip/vacation costs, type averages, and a continuous
+  `date_iso` monthly cost comparison. Every selected row with an ILS amount is
+  included, even if its ledger category ordinarily denotes an internal transfer.
 - `--force-include ID,ID,...` - count specific row(s) as expense/income even
   though their category/group would normally exclude them as an internal
   transfer (e.g. an FX cash withdrawal that was actually trip spending).
@@ -64,8 +74,14 @@ Summarize headline numbers (expenses / income / net, annihilated refund
 pairs), then point at the workbook: summary sheets with native pie/column
 charts, `Details` (one row per record, filterable, stable `id`s),
 `Reconciliation` (no_fx_rate rows that could not be summed, excluded
-transfers, removed pairs, stale ids). Mention Google Sheets import
+transfers, removed pairs and any out-of-range refund counterparts, stale ids).
+Mention Google Sheets import
 (File > Import) keeps tables and charts.
+
+For topic-based trip analysis, approved topic membership is authoritative:
+never discard a selected row because of category, sign, merchant, or another
+heuristic unless the user explicitly asks to exclude it. Rows without an ILS
+amount cannot be summed and remain visible as `no_fx_rate` reconciliation gaps.
 
 ## Notes
 

@@ -63,6 +63,7 @@ Topics still holding `pending_review` rows are refused unless `--force`.
 | `Details` | one row per member record - stable `id` first, then dates, description, category/group/bucket, amounts, flags, explanation, contributing topics; autofilter on, Google Sheets-friendly |
 | `Reconciliation` | annihilated refund pairs, excluded internal-transfer legs, **no_fx_rate rows** (excluded from every sum - fix upstream in finance-unify), stale topic ids, warnings |
 | `Compare <dim>`, `Compare period` | multi-topic matrices + **clustered BarChart3D** and **PieChart3D of grand totals** (auto when topics are comparable: all trips, same kind, or pure date-range slices; `--compare always` forces, `--compare never` disables) |
+| `Trip summary`, `Trip monthly costs` | with `--trip-comparison`: per-topic costs classified as Trip/Vacation, average cost by type, and a continuous `date_iso` month table with `Average`/`Total` rows plus native bar, stacked-column, and line charts |
 
 ## Money semantics
 
@@ -73,7 +74,9 @@ Topics still holding `pending_review` rows are refused unless `--force`.
 - **Refunds**: pairs bound by Skill 1 cancel inside the analyzed set
   (`--refunds keep` to keep both legs). A pair straddling two topics only
   cancels when you analyze the suite containing both legs; analyzing one leg's
-  topic alone keeps it visible.
+  topic alone keeps it visible. Use `--refund-scope ledger` to instead remove
+  the selected leg even when the bound counterpart is outside the selected
+  topic or period; the counterpart remains visible for audit in `Reconciliation`.
 - `no_fx_rate` rows have no ILS amount at all - they can't be summed, so they
   are surfaced instead of guessed.
 - Buckets/groups come from the per-project `category_map.yaml`
@@ -85,6 +88,11 @@ Topics still holding `pending_review` rows are refused unless `--force`.
   instead (e.g. an FX cash withdrawal that was actually spent on the trip,
   rather than moved between the user's own accounts). It never changes the
   ledger or `category_map.yaml` - only this run's totals/sheets.
+- **Approved trip topics are authoritative** with `--trip-comparison`: every
+  selected row with an ILS amount is included in the trip cost, including rows
+  normally classified as internal transfers. Only explicit user exclusions,
+  refund handling selected for the run, and unsummable `no_fx_rate` rows change
+  that membership.
 
 ## Splitting the "By period" sheet
 
@@ -106,6 +114,15 @@ ledger date column feeds *every* split above (including `month`/`quarter`/
 (`billing_date`, e.g. when a credit-card charge posts a month after the
 purchase). The chosen field is recorded on the `Overview` sheet.
 
+### Monthly group comparison
+
+For a month-by-month expense comparison table, add `--monthly-matrix` and an
+inclusive `--month-range YYYY-MM,YYYY-MM`. This requires `--scope expenses` and
+`--split-by month`. The `Monthly comparison` sheet has a row for every requested
+month (including zero-spend months), columns for reconstructed expense groups
+and `Total`, then `Average` and `Total` rows. It also contains stacked monthly
+columns by group, a total-monthly-expenses trend, and total spending by group.
+
 ## Options reference
 
 ```text
@@ -120,6 +137,10 @@ purchase). The chosen field is recorded on the `Overview` sheet.
 --chart-dim bucket|group           default bucket (falls back while identity)
 --top-n N                  pie slices before "אחר" (default 12)
 --refunds annihilate|keep          default annihilate
+--refund-scope selected|ledger     default selected
+--monthly-matrix                   add monthly expense-group comparison sheet/charts
+--month-range YYYY-MM,YYYY-MM      required with --monthly-matrix
+--trip-comparison                  trip/vacation summary and date_iso monthly comparison
 --compare auto|always|never        default auto
 --category-map PATH       override map path
 --out PATH                default data/analysis/<label>.xlsx
@@ -138,6 +159,9 @@ purchase). The chosen field is recorded on the `Overview` sheet.
 - "Regenerate the USA analysis workbook with the top 20 pie slices instead of the default 12."
 - "Analyze my 2024 expenses split by quarter."
 - "Analyze the USA trip split by week."
+- "Plan a comparison of all approved trips and vacations by transaction month,
+  including every selected cash/FX withdrawal, with per-trip totals and average
+  trip versus vacation cost."
 - "Analyze the USA trip split into before/during/after the trip."
 - "Analyze the USA-2026 and Italy-2025 trips together, comparing before/during/after each trip."
 - "Analyze the whole-2024 topic split at 2024-07-01 and 2024-10-01 - three custom periods."

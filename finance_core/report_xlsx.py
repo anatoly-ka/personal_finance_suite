@@ -153,12 +153,24 @@ def _overview_sheet(wb, report: dict, context: dict) -> None:
         ("no_fx_rate rows (not summed)", len(n["fx_gap"])),
         ("stale topic ids", len(n["stale_ids"])),
     ]
+    trip = report.get("trip_comparison")
+    if trip:
+        pairs.extend((
+            ("trip topics", trip["trip_count"]),
+            ("vacation topics", trip["vacation_count"]),
+            ("trip total", trip["trip_total"]),
+            ("vacation total", trip["vacation_total"]),
+            ("average trip cost", trip["average_trip_cost"]),
+            ("average vacation cost", trip["average_vacation_cost"]),
+            ("covered transaction months", trip["month_count"]),
+        ))
     for w in n["warnings"]:
         pairs.append(("warning", w))
     rows = [[k, v] for k, v in pairs]
     _write_table(ws, 1, ["field", "value"], rows)
     for r, (k, _) in enumerate(pairs, start=2):
-        if k in ("expenses total", "income total", "net", "excluded transfers (abs ₪)"):
+        if k in ("expenses total", "income total", "net", "excluded transfers (abs ₪)",
+             "trip total", "vacation total", "average trip cost", "average vacation cost"):
             ws.cell(row=r, column=2).number_format = _MONEY_FMT
     _autofit(ws)
 
@@ -239,6 +251,133 @@ def _period_sheet(wb, report: dict):
     return ws
 
 
+def _monthly_comparison_sheet(wb, report: dict):
+    from openpyxl.chart import BarChart, LineChart, Reference
+    from openpyxl.styles import Font
+
+    matrix = report.get("monthly_matrix")
+    if not matrix:
+        return None
+    ws = wb.create_sheet("Monthly comparison")
+    groups = matrix["groups"]
+    headers = ["month", *groups, "Total"]
+    rows = [[entry["label"], *[entry["values"].get(group, 0.0) for group in groups], entry["total"]]
+            for entry in matrix["rows"]]
+    first, last = _write_table(ws, 1, headers, rows, money_cols=tuple(range(2, len(headers) + 1)))
+    average_row, total_row = last - 1, last
+    for col in range(1, len(headers) + 1):
+        ws.cell(row=average_row, column=col).font = Font(bold=True)
+        ws.cell(row=total_row, column=col).font = Font(bold=True)
+
+    month_last = total_row - 2
+    group_last_col = len(headers) - 1
+    if groups:
+        stacked = BarChart()
+        stacked.type = "col"
+        stacked.grouping = "stacked"
+        stacked.overlap = 100
+        stacked.style = 10
+        stacked.title = f"{report['label']} - monthly expenses by group"
+        stacked.y_axis.title = "ILS"
+        stacked.add_data(Reference(ws, min_col=2, max_col=group_last_col, min_row=1, max_row=month_last),
+                         titles_from_data=True)
+        stacked.set_categories(Reference(ws, min_col=1, min_row=first, max_row=month_last))
+        stacked.height, stacked.width = 12, 24
+        ws.add_chart(stacked, f"A{last + 3}")
+
+        totals = BarChart()
+        totals.type = "bar"
+        totals.style = 11
+        totals.title = f"{report['label']} - total expenses by group"
+        totals.x_axis.title = "ILS"
+        totals.add_data(Reference(ws, min_col=2, max_col=group_last_col, min_row=total_row, max_row=total_row),
+                        from_rows=True, titles_from_data=False)
+        totals.set_categories(Reference(ws, min_col=2, max_col=group_last_col, min_row=1, max_row=1))
+        totals.height, totals.width = 12, 18
+        ws.add_chart(totals, f"Z{last + 3}")
+
+    trend = LineChart()
+    trend.style = 13
+    trend.title = f"{report['label']} - total monthly expenses"
+    trend.y_axis.title = "ILS"
+    trend.add_data(Reference(ws, min_col=len(headers), min_row=1, max_row=month_last), titles_from_data=True)
+    trend.set_categories(Reference(ws, min_col=1, min_row=first, max_row=month_last))
+    trend.height, trend.width = 12, 20
+    ws.add_chart(trend, f"A{last + 27}")
+    _autofit(ws)
+    return ws
+
+
+def _trip_summary_sheet(wb, trip: dict):
+    from openpyxl.chart import BarChart, Reference
+    from openpyxl.styles import Font
+
+    ws = wb.create_sheet("Trip summary")
+    headers = ["topic", "type", "first date", "last date", "expense rows", "total cost ILS"]
+    rows = [[row["topic"], row["type"], row["first_date"], row["last_date"],
+             row["expense_rows"], row["cost_ils"]] for row in trip["summary_rows"]]
+    rows.extend((
+        ["Average trips", "Trip", "", "", trip["trip_count"], trip["average_trip_cost"]],
+        ["Average vacations", "Vacation", "", "", trip["vacation_count"], trip["average_vacation_cost"]],
+        ["Total", "", "", "", "", round(trip["trip_total"] + trip["vacation_total"], 2)],
+    ))
+    first, last = _write_table(ws, 1, headers, rows, money_cols=(6,))
+    for row in range(last - 2, last + 1):
+        for col in range(1, len(headers) + 1):
+            ws.cell(row=row, column=col).font = Font(bold=True)
+    chart = BarChart()
+    chart.type = "bar"
+    chart.style = 10
+    chart.title = "Trip and vacation costs"
+    chart.x_axis.title = "ILS"
+    data_last = last - 3
+    chart.add_data(Reference(ws, min_col=6, min_row=1, max_row=data_last), titles_from_data=True)
+    chart.set_categories(Reference(ws, min_col=1, min_row=first, max_row=data_last))
+    chart.height, chart.width = 12, 20
+    ws.add_chart(chart, "H2")
+    _autofit(ws)
+    return ws
+
+
+def _trip_monthly_costs_sheet(wb, trip: dict):
+    from openpyxl.chart import BarChart, LineChart, Reference
+    from openpyxl.styles import Font
+
+    ws = wb.create_sheet("Trip monthly costs")
+    names = trip["topics"]
+    headers = ["month", *names, "Total"]
+    rows = [[row["label"], *[row["values"].get(name, 0.0) for name in names], row["total"]]
+            for row in trip["monthly_rows"]]
+    first, last = _write_table(ws, 1, headers, rows, money_cols=tuple(range(2, len(headers) + 1)))
+    for row in (last - 1, last):
+        for col in range(1, len(headers) + 1):
+            ws.cell(row=row, column=col).font = Font(bold=True)
+    month_last = last - 2
+    if names:
+        stacked = BarChart()
+        stacked.type = "col"
+        stacked.grouping = "stacked"
+        stacked.overlap = 100
+        stacked.style = 10
+        stacked.title = "Monthly trip and vacation costs"
+        stacked.y_axis.title = "ILS"
+        stacked.add_data(Reference(ws, min_col=2, max_col=len(headers) - 1, min_row=1, max_row=month_last),
+                         titles_from_data=True)
+        stacked.set_categories(Reference(ws, min_col=1, min_row=first, max_row=month_last))
+        stacked.height, stacked.width = 12, 25
+        ws.add_chart(stacked, f"A{last + 3}")
+    trend = LineChart()
+    trend.style = 13
+    trend.title = "Total monthly trip and vacation costs"
+    trend.y_axis.title = "ILS"
+    trend.add_data(Reference(ws, min_col=len(headers), min_row=1, max_row=month_last), titles_from_data=True)
+    trend.set_categories(Reference(ws, min_col=1, min_row=first, max_row=month_last))
+    trend.height, trend.width = 12, 20
+    ws.add_chart(trend, f"A{last + 27}")
+    _autofit(ws)
+    return ws
+
+
 def _details_sheet(wb, report: dict) -> None:
     ws = wb.create_sheet("Details")
     rows = [[rec.get(c, "") for c in DETAIL_COLUMNS] for rec in report["rows"]]
@@ -283,6 +422,14 @@ def _reconciliation_sheet(wb, report: dict) -> None:
         money_col=4,
         footer=(f"removed refunds {fmt_ils(st.get('refunds_ils'))}, removed expenses "
                 f"{fmt_ils(st.get('expenses_ils'))}" if st else None))
+
+    external_refunds = n.get("external_refund_partners") or []
+    write_section(
+        f"Refund-pair counterparts outside the selected range ({len(external_refunds)} row(s))",
+        brief_cols, sorted(external_refunds, key=lambda r: (r.get("seq") or 0, r.get("id"))),
+        money_col=4,
+        footer=("The selected leg was removed from analysis via --refund-scope ledger; "
+                "these counterpart rows are shown for audit only." if external_refunds else None))
 
     write_section(
         f"Internal transfers excluded from sums (total {fmt_ils(report['totals']['transfers_ils'])})",
@@ -389,6 +536,10 @@ def write_report(path: str, report: dict, comparison: dict | None = None,
     else:
         _dim_sheet(wb, "By group", report["by_group"], report)
     _period_sheet(wb, report)
+    _monthly_comparison_sheet(wb, report)
+    if report.get("trip_comparison"):
+        _trip_summary_sheet(wb, report["trip_comparison"])
+        _trip_monthly_costs_sheet(wb, report["trip_comparison"])
     _details_sheet(wb, report)
     _reconciliation_sheet(wb, report)
     if comparison:
