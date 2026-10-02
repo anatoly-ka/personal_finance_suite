@@ -6,6 +6,7 @@
 "# further checking - put a narrow exception above the broader rule it must"
 "# override (see חניון/חניונים below, which must outrank the later פרוגרס rule)."
 merchant,category,source
+PASSPORTCARD FINANCIAL NETANYA,עושים קניות - שונות,user
 חניון,חנייה,user
 חניונים,חנייה,user
 SAS Temperle,לינה,user

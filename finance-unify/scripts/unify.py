@@ -189,7 +189,7 @@ def promotable_corrections(records, corrections, entries):
         if rec is None:
             continue
         merchant = (rec.get("description") or "").strip()
-        if not merchant or merchants.covers(merchant, entries):
+        if not merchant or merchants.covers(rec, entries):
             continue
         keytuple = (merchant, cat)
         if keytuple in seen:

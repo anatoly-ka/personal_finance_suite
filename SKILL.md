@@ -38,3 +38,14 @@ analysis plan first; generate the workbook only after the user approves it.
 | `finance_core/data/category_map.yaml` | Master category, group, and bucket taxonomy | finance-unify copies it to `<project>/category_map.yaml` on first use. |
 | `finance_core/data/topic_signals.yaml` | Default topic-detection signals | finance-topic copies it to `<project>/topic_signals.yaml` on first use. |
 | `finance-unify/merchant_categories.csv` | Shared merchant-to-category mappings | Used across projects; project corrections can be promoted here. |
+
+## Future Topic Note
+
+Temporary guidance for any finance project: when extracting an abroad-trip
+topic, include `PASSPORTCARD FINANCIAL NETANYA       IL` transactions belonging
+to that trip. These virtual-debit-card charges are in ILS, so the current
+`trip_abroad` recipe does not automatically include them as foreign-currency
+card charges. Apply this guidance until the full data for the upcoming sample
+trip is available and used to update the recipe; then replace or remove this
+note in favor of the generalized recipe behavior. The category mapping is
+maintained in `finance-unify/merchant_categories.csv`.
