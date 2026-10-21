@@ -134,7 +134,12 @@ during incremental runs so it cannot silently become the project's normal flow.
   settled and dropped (never double-counted against their card transactions),
   and mirrored transfer pairs spanning runs are annihilated. At least one leg
   of every resolved mirrored-transfer pair always comes from the new export,
-  so pure history is never rewritten.
+  so pure history is never rewritten. The same pass also folds an unambiguous
+  duplicate credit-card detail row (same card, date, and amount; one copy
+  still at its provisional billing date with no settlement link, the other
+  already settled) into its settled sibling - this happens when a merchant's
+  reported text changes between snapshots, so the content fingerprint no
+  longer recognizes the two as one transaction (flag `assumed_duplicate_merge`).
 
 ## Reconciliation algorithm
 
@@ -415,9 +420,10 @@ source column; "derived" = computed by the skill.
 `unmatched_category` (`ענף = ללא סיווג`), `merchant_category` (from the shared
 merchant map), `assumed_category` (in-file guess or `assumed` map entry),
 `manual_category` (from a correction), `no_fx_rate`, `assumed_fx_rate`,
-`unmatched_cc`, `installment`, `refund` (obvious binding found - see "Refund
-binding"), `assumed_refund` (non-obvious binding found), `unmatched_refund`
-(no binding found).
+`unmatched_cc`, `assumed_duplicate_merge` (an incremental update merged a
+duplicate credit-card row - see "Incremental" above), `installment`, `refund`
+(obvious binding found - see "Refund binding"), `assumed_refund` (non-obvious
+binding found), `unmatched_refund` (no binding found).
 
 ## Example prompts
 - "Create a personal-finance project called home-finance and load

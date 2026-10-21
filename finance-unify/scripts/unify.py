@@ -476,7 +476,8 @@ def main() -> int:
             print(f"[info] cross-boundary reconciliation: "
                   f"{xstats['cc_replaced']} cumulative CC charge(s) resolved, "
                   f"{xstats['cc_split_replaced']} split ILS/FX CC settlement(s) resolved, "
-                  f"{xstats['transfers_annihilated']} mirror transfer pair(s) annihilated.")
+                  f"{xstats['transfers_annihilated']} mirror transfer pair(s) annihilated, "
+                  f"{xstats['cc_duplicate_merged']} duplicate CC row(s) merged.")
 
     # Shared merchant->category map: fill rows MyFinanda left unclassified.
     merchant_map_path = resolve(args.merchant_map, "merchant_map", config, _MERCHANT_MAP)
@@ -543,6 +544,7 @@ def write_flag_report(path: str, records: list[dict]) -> None:
         "no_fx_rate": "amount_ils",
         "assumed_fx_rate": "ils_rate",
         "unmatched_cc": "amount_ils",
+        "assumed_duplicate_merge": "description",
         "refund": "reference",
         "assumed_refund": "reference",
         "unmatched_refund": "amount_ils",

@@ -63,7 +63,7 @@ Topics still holding `pending_review` rows are refused unless `--force`.
 | `Details` | one row per member record - stable `id` first, then dates, description, category/group/bucket, amounts, flags, explanation, contributing topics; autofilter on, Google Sheets-friendly |
 | `Reconciliation` | annihilated refund pairs, excluded internal-transfer legs, **no_fx_rate rows** (excluded from every sum - fix upstream in finance-unify), stale topic ids, warnings |
 | `Compare <dim>`, `Compare period` | multi-topic matrices + **clustered BarChart3D** and **PieChart3D of grand totals** (auto when topics are comparable: all trips, same kind, or pure date-range slices; `--compare always` forces, `--compare never` disables) |
-| `Trip summary`, `Trip monthly costs` | with `--trip-comparison`: per-topic costs classified as Trip/Vacation, average cost by type, and a continuous `date_iso` month table with `Average`/`Total` rows plus native bar, stacked-column, and line charts |
+| `Trip summary`, `Trip monthly costs` | with `--trip-comparison`: per-topic costs classified as Trip/Vacation, average cost by type, and a continuous `date_iso` month table with `Average`/`Total` rows plus native bar, stacked-column, and line charts. Each sheet also breaks costs into Flights/Lodging/Cash withdrawal/Other sub-costs (per-trip in `Trip summary`, aggregated per-month across trips in `Trip monthly costs`), each with its own separate chart |
 
 ## Money semantics
 
@@ -123,6 +123,17 @@ month (including zero-spend months), columns for reconstructed expense groups
 and `Total`, then `Average` and `Total` rows. It also contains stacked monthly
 columns by group, a total-monthly-expenses trend, and total spending by group.
 
+### Fixing the trip-comparison month range
+
+By default `--trip-comparison`'s `Trip monthly costs` table spans the
+continuous range of actual transaction months across every selected trip
+(first to last). Add the same `--month-range YYYY-MM,YYYY-MM` used by
+`--monthly-matrix` to instead use a fixed calendar range - e.g. both full
+years of a two-year window - zero-filling any month without a transaction.
+Per-trip totals and the `Average`/`Total` rows always reflect every selected
+row's full cost regardless of whether its own month falls inside the fixed
+range; only the displayed per-month grid is clipped to it.
+
 ## Options reference
 
 ```text
@@ -139,8 +150,10 @@ columns by group, a total-monthly-expenses trend, and total spending by group.
 --refunds annihilate|keep          default annihilate
 --refund-scope selected|ledger     default selected
 --monthly-matrix                   add monthly expense-group comparison sheet/charts
---month-range YYYY-MM,YYYY-MM      required with --monthly-matrix
+--month-range YYYY-MM,YYYY-MM      required with --monthly-matrix; optional fixed range for --trip-comparison
 --trip-comparison                  trip/vacation summary and date_iso monthly comparison
+--subcost-split SPEC               override Flights/Lodging/Cash withdrawal/Other split for
+                                    specific row(s) covering more than one (--trip-comparison only)
 --compare auto|always|never        default auto
 --category-map PATH       override map path
 --out PATH                default data/analysis/<label>.xlsx

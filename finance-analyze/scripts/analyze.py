@@ -66,6 +66,47 @@ def _valid_month(value: str) -> bool:
         return False
 
 
+def _parse_subcost_splits(raw: str | None) -> tuple[dict[str, dict[str, float]], list[str]]:
+    """Parse --subcost-split 'ID1|ID2:Label=pct,Label=pct;ID3:Label=pct' into
+    {row id: {label: fraction}}; any fraction left unassigned per row falls to
+    Other. Returns (splits, error messages)."""
+    splits: dict[str, dict[str, float]] = {}
+    errors: list[str] = []
+    if not raw:
+        return splits, errors
+    for group in raw.split(";"):
+        group = group.strip()
+        if not group:
+            continue
+        ids_part, sep, shares_part = group.partition(":")
+        if not sep:
+            errors.append(f"{group!r} is missing ':label=fraction,...'")
+            continue
+        ids = [i.strip() for i in ids_part.split("|") if i.strip()]
+        if not ids:
+            errors.append(f"{group!r} has no row id(s) before ':'")
+            continue
+        shares: dict[str, float] = {}
+        for pair in shares_part.split(","):
+            pair = pair.strip()
+            if not pair:
+                continue
+            label, eq, pct = pair.partition("=")
+            label = label.strip()
+            if not eq or label not in analyze.TRIP_SUBCOST_LABELS:
+                errors.append(f"{pair!r} must be one of {', '.join(analyze.TRIP_SUBCOST_LABELS)}=fraction")
+                continue
+            try:
+                shares[label] = float(pct)
+            except ValueError:
+                errors.append(f"{pair!r}: {pct!r} is not a number")
+        if sum(shares.values()) > 1.0 + 1e-6:
+            errors.append(f"{group!r}: fractions sum to more than 1.0")
+        for cid in ids:
+            splits[cid] = shares
+    return splits, errors
+
+
 def _topic_span(rows: list[dict]) -> str:
     dates = sorted(r.get("date_iso") or "" for r in rows if r.get("date_iso"))
     return f"{dates[0]} .. {dates[-1]}" if dates else "-"
@@ -84,6 +125,24 @@ def _detail_lines(recs: list[dict], cap: int = 40) -> list[str]:
         lines.append(f"[plan]     {rec.get('id', '?'):<16} {date}  {amt:>14}  {cat} | {desc}")
     if len(recs) > cap:
         lines.append(f"[plan]     ... and {len(recs) - cap} more")
+    return lines
+
+
+def _subcost_split_lines(splits: dict[str, dict[str, float]], by_id: dict[str, dict]) -> list[str]:
+    """One line per --subcost-split row - id, date, amount, and the applied
+    Flights/Lodging/Cash withdrawal/Other percentages."""
+    lines = []
+    for cid, shares in sorted(splits.items()):
+        rec = by_id.get(cid)
+        if not rec:
+            continue
+        date = rec.get("billing_date") or rec.get("date_iso") or "-"
+        amt = analyze.fmt_ils(rec.get("amount_ils"))
+        remainder = round(1.0 - sum(shares.values()), 6)
+        parts = [f"{label} {pct * 100:.0f}%" for label, pct in shares.items()]
+        if remainder > 1e-9:
+            parts.append(f"Other {remainder * 100:.0f}%")
+        lines.append(f"[plan]     {cid:<16} {date}  {amt:>14}  " + " / ".join(parts))
     return lines
 
 
@@ -150,9 +209,15 @@ def _plan_lines(report: dict, comparison: dict | None, context: dict,
             f"[plan] comparison : skipped - {context.get('compare_reason', 'not similar')}")
     trip = report.get("trip_comparison")
     if trip:
+        span_desc = (f"{trip['month_count']} fixed calendar month(s) ({context['month_range'][0]}"
+                     f" .. {context['month_range'][1]})") if trip.get("fixed_range") \
+            else f"{trip['month_count']} continuous transaction month(s)"
         lines.append(
             f"[plan] trips      : {trip['trip_count']} trip(s), {trip['vacation_count']} vacation(s); "
-            f"{trip['month_count']} continuous transaction month(s)")
+            f"{span_desc}")
+        if trip.get("subcost_splits"):
+            lines.append(f"[plan] subcost split: {len(trip['subcost_splits'])} row(s) overridden")
+            lines.extend(context.get("subcost_split_lines") or [])
     lines.append(f"[plan] output     : {out_path}")
     for w in n["warnings"]:
         lines.append(f"[plan] WARNING    : {w}")
@@ -260,6 +325,7 @@ def run(args) -> int:
         if not args.month_range:
             print("[error] --monthly-matrix requires --month-range START,END (YYYY-MM,YYYY-MM).")
             return 2
+    if args.month_range and (args.monthly_matrix or args.trip_comparison):
         month_parts = _split_multi([args.month_range])
         if len(month_parts) != 2 or any(not _valid_month(value) for value in month_parts):
             print("[error] --month-range must contain exactly two YYYY-MM values.")
@@ -269,7 +335,8 @@ def run(args) -> int:
             return 2
         args.month_range = tuple(month_parts)
     elif args.month_range:
-        print("[warn] --month-range is ignored unless --monthly-matrix is set.")
+        print("[warn] --month-range is ignored unless --monthly-matrix or --trip-comparison is set.")
+        args.month_range = None
 
     if args.trip_comparison:
         if not args.topics or args.scope != "expenses" or args.split_by != "month" \
@@ -285,6 +352,20 @@ def run(args) -> int:
         if args.monthly_matrix:
             print("[error] --trip-comparison cannot be combined with --monthly-matrix.")
             return 2
+
+    subcost_splits, subcost_errors = _parse_subcost_splits(args.subcost_split)
+    if subcost_errors:
+        for e in subcost_errors:
+            print(f"[error] --subcost-split: {e}")
+        return 2
+    if subcost_splits and not args.trip_comparison:
+        print("[warn] --subcost-split is ignored unless --trip-comparison is set.")
+        subcost_splits = {}
+    unknown_split_ids = [cid for cid in subcost_splits if cid not in seen_ids]
+    if unknown_split_ids:
+        print(f"[error] --subcost-split row id(s) not in any selected topic: "
+              f"{', '.join(unknown_split_ids)}")
+        return 2
 
     # ---- refund annihilation (suite-wide, before any partitioning) -------
     extra_notes: dict = {"stale_ids": stale}
@@ -324,7 +405,8 @@ def run(args) -> int:
                 t_rows, label=s["topic"], **common))
 
     if args.trip_comparison:
-        report["trip_comparison"] = analyze.build_trip_comparison(sub_reports, specs)
+        report["trip_comparison"] = analyze.build_trip_comparison(
+            sub_reports, specs, month_range=args.month_range, subcost_splits=subcost_splits)
 
     # ---- comparison decision ---------------------------------------------
     comparison = None
@@ -362,6 +444,8 @@ def run(args) -> int:
         "phase_ranges": phase_topic_ranges,
         "split_dates": split_dates,
         "trip_comparison": args.trip_comparison,
+        "month_range": args.month_range,
+        "subcost_split_lines": _subcost_split_lines(subcost_splits, by_id),
     }
 
     out_path = args.out or _default_out(project, label)
@@ -447,9 +531,17 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--monthly-matrix", action="store_true",
                     help="Add a monthly expense-group comparison table and charts; requires expenses/month.")
     ap.add_argument("--month-range",
-                    help="Inclusive YYYY-MM,YYYY-MM range for --monthly-matrix, including zero-spend months.")
+                    help="Inclusive YYYY-MM,YYYY-MM range for --monthly-matrix (required) or "
+                         "--trip-comparison (optional, default: continuous transaction months); "
+                         "includes zero-spend months.")
     ap.add_argument("--trip-comparison", action="store_true",
                     help="Add trip/vacation cost and transaction-month comparison sheets for approved trip topics.")
+    ap.add_argument("--subcost-split", dest="subcost_split",
+                    help="With --trip-comparison, override the Flights/Lodging/Cash withdrawal/"
+                         "Other sub-cost split for specific row(s) that cover more than one "
+                         "(e.g. a combined flight+lodging payment): "
+                         "'ID1|ID2:Label=fraction,Label=fraction;ID3:Label=fraction,...'. "
+                         "Any unassigned fraction per row falls to Other.")
     ap.add_argument("--force-include", dest="force_include",
                     help="Comma-separated row id(s) to count as expense/income even though "
                          "their category/group would normally exclude them as an internal "

@@ -195,8 +195,54 @@ def build_monthly_matrix(rows: list[dict], month_range: tuple[str, str]) -> dict
     return {"groups": groups, "rows": matrix_rows, "month_count": len(labels)}
 
 
-def build_trip_comparison(reports: list[dict], specs: list[dict]) -> dict:
-    """Summarize approved trip topics and their continuous transaction-month costs."""
+TRIP_SUBCOST_LABELS = ("Flights", "Lodging", "Cash withdrawal", "Other")
+_TRIP_SUBCOST_CATEGORIES = {
+    "טיסות": "Flights",
+    "לינה": "Lodging",
+    "העברת מזומן": "Cash withdrawal",
+    'העברת מט"ח': "Cash withdrawal",
+}
+
+
+def _trip_subcost(category: str) -> str:
+    """Classify a trip expense row into a coarse Flights/Lodging/Cash/Other sub-cost."""
+    return _TRIP_SUBCOST_CATEGORIES.get((category or "").strip(), "Other")
+
+
+def _subcost_shares(rec: dict, splits: dict[str, dict[str, float]] | None) -> dict[str, float]:
+    """-> {label: fraction of this row's amount}. A manual override (row id in
+    `splits`) distributes the row across named sub-costs; any unassigned
+    fraction (1 - sum of given fractions) falls to Other. Without an override,
+    the whole row goes to its category-derived sub-cost."""
+    override = (splits or {}).get(rec.get("id"))
+    if override:
+        shares = dict(override)
+        remainder = round(1.0 - sum(override.values()), 6)
+        if remainder > 1e-9:
+            shares["Other"] = shares.get("Other", 0.0) + remainder
+        return shares
+    return {_trip_subcost(rec.get("category")): 1.0}
+
+
+def build_trip_comparison(reports: list[dict], specs: list[dict],
+                           month_range: tuple[str, str] | None = None,
+                           subcost_splits: dict[str, dict[str, float]] | None = None) -> dict:
+    """Summarize approved trip topics and their transaction-month costs.
+
+    By default the monthly table spans the continuous range of actual
+    transaction months (first to last across all selected trips). Pass
+    `month_range` (start, end) as YYYY-MM to instead use a fixed calendar
+    range - e.g. all 24 months of two full years - zero-filling any month
+    without transactions; per-trip totals/averages still reflect every
+    selected row regardless of whether its own month falls in that range.
+
+    Each trip's cost is also split into Flights/Lodging/Cash withdrawal/Other
+    sub-costs, both per-trip (summary_rows[*]["subcosts"]) and aggregated
+    across every selected trip per month (subcost_monthly_rows). Pass
+    `subcost_splits` ({row id: {label: fraction}}) to override specific rows
+    that cover more than one sub-cost (e.g. a combined flight+lodging payment)
+    instead of relying on the row's own category.
+    """
     type_for_kind = {"trip_abroad": "Trip", "trip_local": "Vacation"}
     report_by_name = {report["label"]: report for report in reports}
     rows = []
@@ -207,6 +253,19 @@ def build_trip_comparison(reports: list[dict], specs: list[dict]) -> dict:
             continue
         dates = sorted(row.get("date_iso") or "" for row in report["rows"] if row.get("date_iso"))
         months.extend(row.get("period") or "" for row in report["rows"] if row.get("period"))
+        subcost_totals = {label: 0.0 for label in TRIP_SUBCOST_LABELS}
+        subcost_by_period: dict[str, dict[str, float]] = {}
+        for rec in report["rows"]:
+            if rec.get("side") != "expense":
+                continue
+            amt = -(rec.get("amount_ils") or 0.0)
+            period = rec.get("period") or ""
+            for label, frac in _subcost_shares(rec, subcost_splits).items():
+                portion = amt * frac
+                subcost_totals[label] = subcost_totals.get(label, 0.0) + portion
+                if period:
+                    subcost_by_period.setdefault(period, {})
+                    subcost_by_period[period][label] = subcost_by_period[period].get(label, 0.0) + portion
         rows.append({
             "topic": spec["topic"],
             "type": type_for_kind[spec["kind"]],
@@ -214,12 +273,24 @@ def build_trip_comparison(reports: list[dict], specs: list[dict]) -> dict:
             "last_date": dates[-1] if dates else "",
             "expense_rows": report["totals"]["expense_rows"],
             "cost_ils": report["totals"]["expenses"],
+            "subcosts": {label: round(v, 2) for label, v in subcost_totals.items()},
             "periods": {entry["label"]: entry["expenses"] for entry in report["by_period"]},
+            "_subcost_periods": subcost_by_period,
         })
-    labels = _month_labels(min(months), max(months)) if months else []
+    if month_range:
+        labels = _month_labels(*month_range)
+    else:
+        labels = _month_labels(min(months), max(months)) if months else []
+    subcost_by_month: dict[str, dict[str, float]] = {label: {} for label in TRIP_SUBCOST_LABELS}
     for row in rows:
         periods = row.pop("periods")
         row["monthly"] = {label: periods.get(label, 0.0) for label in labels}
+        sub_periods = row.pop("_subcost_periods")
+        for period, vals in sub_periods.items():
+            if period not in labels:
+                continue
+            for label, amt in vals.items():
+                subcost_by_month[label][period] = subcost_by_month[label].get(period, 0.0) + amt
     trip_rows = [row for row in rows if row["type"] == "Trip"]
     vacation_rows = [row for row in rows if row["type"] == "Vacation"]
     trip_total = round(sum(row["cost_ils"] for row in trip_rows), 2)
@@ -235,17 +306,50 @@ def build_trip_comparison(reports: list[dict], specs: list[dict]) -> dict:
          "total": round(sum(totals.values()) / divisor, 2)},
         {"label": "Total", "values": totals, "total": round(sum(totals.values()), 2)},
     ))
+
+    # sub-cost totals summed across every selected trip (full cost, not clipped to month_range)
+    subcost_grand_totals = {label: 0.0 for label in TRIP_SUBCOST_LABELS}
+    for row in rows:
+        for label in TRIP_SUBCOST_LABELS:
+            subcost_grand_totals[label] += row["subcosts"][label]
+    subcost_grand_totals = {label: round(v, 2) for label, v in subcost_grand_totals.items()}
+    trip_subcost_avg = {
+        label: round(sum(r["subcosts"][label] for r in trip_rows) / len(trip_rows), 2) if trip_rows else 0.0
+        for label in TRIP_SUBCOST_LABELS}
+    vacation_subcost_avg = {
+        label: round(sum(r["subcosts"][label] for r in vacation_rows) / len(vacation_rows), 2) if vacation_rows else 0.0
+        for label in TRIP_SUBCOST_LABELS}
+
+    subcost_monthly_rows = []
+    for label in labels:
+        values = {s: round(subcost_by_month[s].get(label, 0.0), 2) for s in TRIP_SUBCOST_LABELS}
+        subcost_monthly_rows.append({"label": label, "values": values, "total": round(sum(values.values()), 2)})
+    subcost_monthly_rows.extend((
+        {"label": "Average",
+         "values": {s: round(v / divisor, 2) for s, v in subcost_grand_totals.items()},
+         "total": round(sum(subcost_grand_totals.values()) / divisor, 2)},
+        {"label": "Total", "values": dict(subcost_grand_totals),
+         "total": round(sum(subcost_grand_totals.values()), 2)},
+    ))
+
     return {
         "topics": [row["topic"] for row in rows],
         "summary_rows": rows,
         "monthly_rows": monthly_rows,
         "month_count": len(labels),
+        "fixed_range": bool(month_range),
         "trip_count": len(trip_rows),
         "vacation_count": len(vacation_rows),
         "trip_total": trip_total,
         "vacation_total": vacation_total,
         "average_trip_cost": round(trip_total / len(trip_rows), 2) if trip_rows else 0.0,
         "average_vacation_cost": round(vacation_total / len(vacation_rows), 2) if vacation_rows else 0.0,
+        "subcost_labels": list(TRIP_SUBCOST_LABELS),
+        "subcost_grand_totals": subcost_grand_totals,
+        "average_trip_subcosts": trip_subcost_avg,
+        "average_vacation_subcosts": vacation_subcost_avg,
+        "subcost_monthly_rows": subcost_monthly_rows,
+        "subcost_splits": dict(subcost_splits or {}),
     }
 
 

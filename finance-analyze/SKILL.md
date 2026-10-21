@@ -63,6 +63,18 @@ topic extraction - create a `custom` topic with `finance-topic propose`
   topics, add per-topic trip/vacation costs, type averages, and a continuous
   `date_iso` monthly cost comparison. Every selected row with an ILS amount is
   included, even if its ledger category ordinarily denotes an internal transfer.
+  Add `--month-range YYYY-MM,YYYY-MM` to fix the monthly table to a calendar
+  range (e.g. all months of two full years) instead of the default continuous
+  transaction-month span; zero-fills months without a transaction while
+  per-trip totals/averages still reflect every selected row's full cost. Both
+  `Trip summary` and `Trip monthly costs` also break each trip/month down into
+  Flights/Lodging/Cash withdrawal/Other sub-costs (by category: `טיסות`,
+  `לינה`, `העברת מזומן`/`העברת מט"ח`, everything else), each with its own
+  separate chart from the total-cost charts. Use
+  `--subcost-split 'ID1|ID2:Label=fraction,Label=fraction;ID3:Label=fraction'`
+  to override specific row(s) that actually cover more than one sub-cost (e.g.
+  a combined flight+lodging payment); any unassigned fraction per row falls to
+  Other.
 - `--force-include ID,ID,...` - count specific row(s) as expense/income even
   though their category/group would normally exclude them as an internal
   transfer (e.g. an FX cash withdrawal that was actually trip spending).

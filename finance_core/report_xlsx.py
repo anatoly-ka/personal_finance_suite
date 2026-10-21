@@ -155,6 +155,8 @@ def _overview_sheet(wb, report: dict, context: dict) -> None:
     ]
     trip = report.get("trip_comparison")
     if trip:
+        months_label = "covered months (fixed range)" if trip.get("fixed_range") \
+            else "covered transaction months"
         pairs.extend((
             ("trip topics", trip["trip_count"]),
             ("vacation topics", trip["vacation_count"]),
@@ -162,7 +164,7 @@ def _overview_sheet(wb, report: dict, context: dict) -> None:
             ("vacation total", trip["vacation_total"]),
             ("average trip cost", trip["average_trip_cost"]),
             ("average vacation cost", trip["average_vacation_cost"]),
-            ("covered transaction months", trip["month_count"]),
+            (months_label, trip["month_count"]),
         ))
     for w in n["warnings"]:
         pairs.append(("warning", w))
@@ -313,28 +315,48 @@ def _trip_summary_sheet(wb, trip: dict):
     from openpyxl.styles import Font
 
     ws = wb.create_sheet("Trip summary")
-    headers = ["topic", "type", "first date", "last date", "expense rows", "total cost ILS"]
+    subcosts = trip["subcost_labels"]
+    headers = ["topic", "type", "first date", "last date", "expense rows", "total cost ILS",
+               *[f"{label} ILS" for label in subcosts]]
     rows = [[row["topic"], row["type"], row["first_date"], row["last_date"],
-             row["expense_rows"], row["cost_ils"]] for row in trip["summary_rows"]]
+             row["expense_rows"], row["cost_ils"], *[row["subcosts"][label] for label in subcosts]]
+            for row in trip["summary_rows"]]
     rows.extend((
-        ["Average trips", "Trip", "", "", trip["trip_count"], trip["average_trip_cost"]],
-        ["Average vacations", "Vacation", "", "", trip["vacation_count"], trip["average_vacation_cost"]],
-        ["Total", "", "", "", "", round(trip["trip_total"] + trip["vacation_total"], 2)],
+        ["Average trips", "Trip", "", "", trip["trip_count"], trip["average_trip_cost"],
+         *[trip["average_trip_subcosts"][label] for label in subcosts]],
+        ["Average vacations", "Vacation", "", "", trip["vacation_count"], trip["average_vacation_cost"],
+         *[trip["average_vacation_subcosts"][label] for label in subcosts]],
+        ["Total", "", "", "", "", round(trip["trip_total"] + trip["vacation_total"], 2),
+         *[trip["subcost_grand_totals"][label] for label in subcosts]],
     ))
-    first, last = _write_table(ws, 1, headers, rows, money_cols=(6,))
+    money_cols = tuple(range(6, 7 + len(subcosts)))
+    first, last = _write_table(ws, 1, headers, rows, money_cols=money_cols)
     for row in range(last - 2, last + 1):
         for col in range(1, len(headers) + 1):
             ws.cell(row=row, column=col).font = Font(bold=True)
+    data_last = last - 3
     chart = BarChart()
     chart.type = "bar"
     chart.style = 10
     chart.title = "Trip and vacation costs"
     chart.x_axis.title = "ILS"
-    data_last = last - 3
     chart.add_data(Reference(ws, min_col=6, min_row=1, max_row=data_last), titles_from_data=True)
     chart.set_categories(Reference(ws, min_col=1, min_row=first, max_row=data_last))
     chart.height, chart.width = 12, 20
     ws.add_chart(chart, "H2")
+
+    subcost_chart = BarChart()
+    subcost_chart.type = "col"
+    subcost_chart.grouping = "stacked"
+    subcost_chart.overlap = 100
+    subcost_chart.style = 10
+    subcost_chart.title = "Sub-costs per trip (Flights / Lodging / Cash withdrawal / Other)"
+    subcost_chart.y_axis.title = "ILS"
+    subcost_chart.add_data(Reference(ws, min_col=7, max_col=len(headers), min_row=1, max_row=data_last),
+                          titles_from_data=True)
+    subcost_chart.set_categories(Reference(ws, min_col=1, min_row=first, max_row=data_last))
+    subcost_chart.height, subcost_chart.width = 12, 25
+    ws.add_chart(subcost_chart, "H27")
     _autofit(ws)
     return ws
 
@@ -374,6 +396,47 @@ def _trip_monthly_costs_sheet(wb, trip: dict):
     trend.set_categories(Reference(ws, min_col=1, min_row=first, max_row=month_last))
     trend.height, trend.width = 12, 20
     ws.add_chart(trend, f"A{last + 27}")
+
+    # second table: sub-cost breakdown aggregated across every selected trip
+    sub_start = last + 55
+    subcosts = trip["subcost_labels"]
+    sub_headers = ["month", *subcosts, "Total"]
+    sub_rows = [[row["label"], *[row["values"].get(label, 0.0) for label in subcosts], row["total"]]
+                for row in trip["subcost_monthly_rows"]]
+    sub_first, sub_last = _write_table(ws, sub_start, sub_headers, sub_rows,
+                                       money_cols=tuple(range(2, len(sub_headers) + 1)))
+    ws.cell(row=sub_start - 1, column=1, value="Monthly sub-cost breakdown (all trips combined)").font = \
+        Font(bold=True, size=12)
+    for row in (sub_last - 1, sub_last):
+        for col in range(1, len(sub_headers) + 1):
+            ws.cell(row=row, column=col).font = Font(bold=True)
+    sub_month_last = sub_last - 2
+    sub_stacked = BarChart()
+    sub_stacked.type = "col"
+    sub_stacked.grouping = "stacked"
+    sub_stacked.overlap = 100
+    sub_stacked.style = 11
+    sub_stacked.title = "Monthly sub-costs (Flights / Lodging / Cash withdrawal / Other)"
+    sub_stacked.y_axis.title = "ILS"
+    sub_stacked.add_data(Reference(ws, min_col=2, max_col=len(sub_headers) - 1,
+                                   min_row=sub_start, max_row=sub_month_last),
+                         titles_from_data=True)
+    sub_stacked.set_categories(Reference(ws, min_col=1, min_row=sub_first, max_row=sub_month_last))
+    sub_stacked.height, sub_stacked.width = 12, 25
+    ws.add_chart(sub_stacked, f"A{sub_last + 3}")
+
+    sub_totals = BarChart()
+    sub_totals.type = "bar"
+    sub_totals.style = 12
+    sub_totals.title = "Total cost by sub-cost"
+    sub_totals.x_axis.title = "ILS"
+    sub_totals.add_data(Reference(ws, min_col=2, max_col=len(sub_headers) - 1,
+                                  min_row=sub_last, max_row=sub_last),
+                        from_rows=True, titles_from_data=False)
+    sub_totals.set_categories(Reference(ws, min_col=2, max_col=len(sub_headers) - 1,
+                                        min_row=sub_start, max_row=sub_start))
+    sub_totals.height, sub_totals.width = 12, 18
+    ws.add_chart(sub_totals, f"Z{sub_last + 3}")
     _autofit(ws)
     return ws
 

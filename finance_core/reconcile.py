@@ -128,9 +128,18 @@ def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[li
        legs are dropped), so every stored internal-transfer leg is genuinely
        unmatched and may pair with a newly appended counterpart. At least one
        leg of every pair must be appended, so pure history is never touched.
+    3. Duplicate credit-card detail rows: a transaction can be stored twice
+       under two different ids when its merchant text changed between export
+       snapshots (so the incremental content fingerprint - which includes
+       description - no longer matches), one copy staying at its provisional
+       billing date with no cumulative-charge link while the other went on to
+       settle normally. Unambiguous pairs (same card + date + amount, exactly
+       one unsettled side and one settled side) are folded together; see
+       `_merge_duplicate_cc_rows`.
 
     Returns (kept_records, stats)."""
-    stats = {"cc_replaced": 0, "transfers_annihilated": 0, "cc_split_replaced": 0}
+    stats = {"cc_replaced": 0, "transfers_annihilated": 0, "cc_split_replaced": 0,
+             "cc_duplicate_merged": 0}
     appended_ids = {id(r) for r in appended}
     is_appended = lambda i: id(records[i]) in appended_ids
     dropped: set[int] = set()
@@ -202,6 +211,9 @@ def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[li
         records, still_unresolved, dropped, stats, groups, group_ils_sum, group_nonils_sum, consumed,
     )
 
+    # ---------------------------------------- 3) duplicate CC detail rows
+    _merge_duplicate_cc_rows(records, dropped, stats)
+
     # -------------------------------------------------- 2) mirrored transfers
     eligible = [
         i for i, r in enumerate(records)
@@ -253,6 +265,67 @@ def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[li
 
     kept = [r for i, r in enumerate(records) if i not in dropped]
     return kept, stats
+
+
+def _merge_duplicate_cc_rows(records: list[dict], dropped: set[int], stats: dict) -> None:
+    """Fold a still-provisional credit-card row into its settled sibling when
+    the two are clearly the same physical transaction stored twice. This
+    happens when a merchant's reported text changes between export snapshots
+    (e.g. a truncated name becomes the full one, or a branch/country suffix is
+    added once the charge settles) - the incremental content fingerprint
+    (source + date + description + amount) then no longer matches, so the
+    newer snapshot's row is appended instead of updating the stored one.
+
+    Only folds a bucket (same card, date_iso, ILS amount) that is unambiguous:
+    exactly one row still sitting at its provisional billing date
+    (`billing_date == date_iso`) with no cumulative-charge link, and exactly
+    one other row in that same bucket that already carries a `link_group`
+    (confirmed settled). The provisional row's id is kept (first-seen wins,
+    per the incremental-merge id-stability rule); the settled row's billing
+    date, link, and any blank fields it fills in are adopted, and the settled
+    row is dropped. The settled row's description replaces the provisional
+    one unless it is simply the provisional text reversed (a bidi-rendering
+    artifact some exports introduce, which is strictly less readable, not a
+    correction)."""
+    buckets: dict[tuple, list[int]] = defaultdict(list)
+    for i, r in enumerate(records):
+        if i in dropped or r.get("source_type") != "credit-card":
+            continue
+        amt = r.get("amount_ils")
+        if amt is None:
+            continue
+        key = (r.get("source_key"), r.get("date_iso", ""), round(amt, 2))
+        buckets[key].append(i)
+
+    for idxs in buckets.values():
+        if len(idxs) < 2:
+            continue
+        orphans = [i for i in idxs
+                   if records[i].get("billing_date") == records[i].get("date_iso")
+                   and not records[i].get("link_group")]
+        settled = [i for i in idxs if records[i].get("link_group")]
+        if len(orphans) != 1 or len(settled) != 1:
+            continue  # only fold unambiguous 1:1 pairs
+        oi, si = orphans[0], settled[0]
+        orphan, settle = records[oi], records[si]
+        if (orphan.get("currency_orig") or "ILS") != (settle.get("currency_orig") or "ILS"):
+            continue
+
+        orphan["billing_date"] = settle.get("billing_date") or orphan["billing_date"]
+        orphan["link_group"] = settle.get("link_group")
+        for field in ("merchant_country", "time", "detail"):
+            if not orphan.get(field) and settle.get(field):
+                orphan[field] = settle[field]
+        old_desc, new_desc = orphan.get("description", ""), settle.get("description", "")
+        if new_desc and new_desc != old_desc and new_desc[::-1].strip() != old_desc.strip():
+            orphan["description"] = new_desc
+        if (not orphan.get("category") or orphan["category"] == columns.UNCLASSIFIED) and settle.get("category"):
+            orphan["category"] = settle["category"]
+        schema.add_flag(orphan, "assumed_duplicate_merge")
+        note = f"Merged duplicate {settle['id']} (same card/date/amount; provisional vs settled export)."
+        orphan["explanation"] = f"{orphan['explanation']} {note}".strip() if orphan.get("explanation") else note
+        dropped.add(si)
+        stats["cc_duplicate_merged"] += 1
 
 
 # ------------------------------------------------------------------- CC charges
