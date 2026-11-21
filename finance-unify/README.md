@@ -67,7 +67,10 @@ python ~/.agents/skills/personal-finance-suite/finance-unify/scripts/unify.py --
 - Replaces each cumulative monthly credit-card charge in a bank account with the
   underlying per-transaction credit-card rows (linked via `link_group`).
 - Annihilates only *obviously mirrored* self-transfers (e.g. -X out of account A
-  and +X into account B within a couple of days). See "Reconciliation algorithm".
+  and +X into account B within a couple of days). Deduplicates credit-card rows 
+  that are clearly the same transaction but arrived with different descriptions 
+  across export snapshots (see "Deduplication of credit-card rows" below). See 
+  "Reconciliation algorithm" for full details.
 - Converts foreign-currency bank rows to ILS using rates derived from the file's
   own conversion transactions (median within +/-1 month, else flagged).
 - Auto-categorizes every matching row - overriding MyFinanda's own category,
@@ -83,6 +86,13 @@ python ~/.agents/skills/personal-finance-suite/finance-unify/scripts/unify.py --
 - Binds each `refund` row to the expense it reverses (same vendor, matching
   amount), so the pair can be excluded together in later analysis. See
   "Refund binding".
+- Resolves "future" transaction flags for provisional purchases that later post 
+  with real amounts: future-flagged rows with billing dates in the past (beyond 
+  a 3-day buffer) are matched against newly-arriving finalized versions using a 
+  partial fingerprint that excludes amount, so a corrected charge is re-linked 
+  to its provisional ID and flag removed. Unmatched futures are retried each 
+  incremental run; if billing_date exceeds 60 days old, the flag is removed and 
+  the provisional amount becomes final.
 
 ## Files
 
@@ -114,8 +124,9 @@ during incremental runs so it cannot silently become the project's normal flow.
 - **Standalone**: build a fresh ledger from a source file.
 - **Incremental** (`--incremental`): extend an existing `data/ledger.csv` with a
   newer export. Rows are matched by a content fingerprint — source sheet +
-  date + description + original-currency sum (multiset semantics, so genuine
-  same-day duplicates survive). Matched rows keep their stored ledger row
+  date + description + original-currency sum + installment number (multiset semantics, 
+  so genuine same-day duplicates survive; installment number distinguishes different 
+  payment cycles of multi-part purchases). Matched rows keep their stored ledger row
   (stable IDs, manual categories, refund links), with two exceptions: a
   still-unclassified stored category adopts the fresh export's real one, and
   export-*corrected* scheduling facts are adopted from the newer snapshot —
@@ -134,12 +145,10 @@ during incremental runs so it cannot silently become the project's normal flow.
   settled and dropped (never double-counted against their card transactions),
   and mirrored transfer pairs spanning runs are annihilated. At least one leg
   of every resolved mirrored-transfer pair always comes from the new export,
-  so pure history is never rewritten. The same pass also folds an unambiguous
-  duplicate credit-card detail row (same card, date, and amount; one copy
-  still at its provisional billing date with no settlement link, the other
-  already settled) into its settled sibling - this happens when a merchant's
-  reported text changes between snapshots, so the content fingerprint no
-  longer recognizes the two as one transaction (flag `assumed_duplicate_merge`).
+  so pure history is never rewritten. The same pass also deduplicates provisional 
+  and finalized credit-card rows (see "Deduplication of credit-card rows" below) 
+  and finalizes any "future"-flagged rows whose billing dates have come due 
+  (see "Future-row finalization" below).
 
 ## Reconciliation algorithm
 
@@ -212,6 +221,97 @@ doesn't clearly reconcile is kept as-is.
 
 Because the group is not stored, Skill 3 recognizes transfers/CC settlements by
 reconstructing the group from `category` (they map to `העברות פנימיות`).
+
+## Deduplication of Credit-Card Rows
+
+A still-provisional credit-card row is folded into its settled sibling when the 
+two are clearly the same physical transaction. This happens when:
+
+- A merchant's reported text changes between export snapshots (e.g. a truncated 
+  name becomes the full one, a branch/country suffix is added once the charge 
+  settles, or - in rare cases - the text comes back with every character 
+  reversed, a bidi-rendering glitch some export refreshes introduce for 
+  Latin-script merchant names in an RTL-locale report).
+- The incremental content fingerprint (source + date + description + amount + 
+  installment number) then no longer matches, so the newer snapshot's row is 
+  appended instead of updating the stored one.
+
+A bucket is defined as: same card, same date_iso, same ILS amount.
+
+Within a bucket, three unambiguous patterns are folded:
+
+1. **Classic provisional/settled pair:** 
+   - Exactly one row still at its provisional billing date (`billing_date == date_iso`) 
+     with no cumulative-charge link
+   - Exactly one other row that already carries a `link_group` (confirmed settled)
+   - Descriptions need not match here — the structural signal (one side moved on 
+     to real settlement, the other never did) is enough on its own.
+
+2. **Settled + finalized unlinked pair:**
+   - One settled row (has `link_group`)
+   - Exactly one other unlinked row whose billing date is ALSO already finalized 
+     (not the classic provisional shape)
+   - Only accepted when the two descriptions are text-equivalent (normalized 
+     whitespace and case, or one being the other with every character reversed)
+   - The kept row is first-seen by ID sequence (since "linked" does not imply 
+     "earlier" — the settled side may well be the later-arriving, possibly-reversed copy).
+
+3. **Two unlinked, text-equivalent rows:**
+   - Neither row is linked yet, but exactly two rows share the bucket
+   - Only accepted when descriptions are text-equivalent
+   - The first-seen (lower ID sequence number) row is kept
+
+A pair is never folded if:
+
+- Both sides carry a non-empty, DIFFERING `installment_no` — installment plans 
+  repeat the same original date_iso, description, and (for most plans) amount 
+  every billing cycle, so two different installments would otherwise look 
+  exactly like a duplicate pair. The installment number is structural proof 
+  they are NOT the same transaction.
+- Either side already carries a non-empty `reference` — that means it was 
+  already explicitly resolved (typically by refund-binding) to a SPECIFIC 
+  counterpart. Same-day/same-amount/same-description refund rows for genuinely 
+  different original purchases are common enough (e.g. repeat app-store refunds) 
+  that content equivalence alone must yield to an existing explicit resolution.
+
+In all three cases, the kept row's id is preserved (first-seen wins, per the 
+incremental-merge id-stability rule). The dropped row's billing date, link, and 
+any blank fields are adopted onto the kept row; its description replaces the 
+kept one's only if the kept one's text isn't simply the dropped text reversed 
+(a strictly less readable bidi artifact, not a correction).
+
+A merged row is flagged `assumed_duplicate_merge` for review.
+
+## Future-Row Finalization
+
+A "future"-flagged row represents a provisional purchase: one reported with an 
+uncertain amount that MyFinanda hasn't yet confirmed with the payment network. 
+When an amount is finalized in a later export, the two versions need to be 
+re-linked so a corrected amount replaces the provisional one and the original 
+ID (and any manual corrections) are preserved.
+
+The finalization process triggers when a future-flagged row's billing_date 
+enters the past (beyond a 3-day buffer):
+
+1. A partial fingerprint (source, date, description, currency, **excluding amount**) 
+   is used to search for the finalized version among newly-arrived rows in the 
+   current export (rows that didn't match the full fingerprint and are being 
+   appended, not updating existing ledger rows).
+2. If exactly one candidate is found and unambiguous, the old row is kept with 
+   its original id, manual corrections, and category, but all refreshable fields 
+   (especially the corrected amount) are adopted from the new row. The "future" 
+   flag is removed.
+3. If no candidate is found in this export, the row keeps its "future" flag and 
+   is retried on every subsequent incremental update (the real transaction may 
+   still be pending with the payment network).
+4. If billing_date exceeds ~60 days in the past, the row is considered mature: 
+   the flag is removed and the provisional amount becomes final, even if no 
+   finalized version ever surfaces (rare edge case of a genuinely unresolved 
+   payment or a network error).
+
+This behavior ensures provisional charges don't silently disappear from the 
+ledger while also allowing them to self-correct when the payment network 
+finally posts the confirmed amount.
 
 ## Refund binding
 

@@ -17,6 +17,23 @@ The rest of this document also explains the files it creates, for anyone
 curious or troubleshooting - but skip straight to "Step-by-step example" if
 you just want to see it in action.
 
+## Refund Pair Exclusion
+
+Topics scoped to "expenses" or "income" automatically exclude any rows that form 
+one leg of a validly bound refund→expense pair. This prevents skewed totals when 
+a charge is immediately reversed (e.g. card fees waived, failed transactions, or 
+customer refunds). Both legs of the pair are excluded from the expense count, so 
+the net effect is correctly represented as zero.
+
+This filtering is applied across all topic recipes:
+- **trip_abroad** and **trip_local:** exclude refunded items from "expenses" 
+  scope and from the dominant foreign-currency calculation
+- **custom:** exclude refunded items from filtered "expenses" scope
+- **exclude_topics:** exclude refunded items from "expenses" scope
+
+The list of refunded row IDs is computed fresh on each extraction, based on the 
+current ledger state.
+
 ## What this skill needs first
 
 It reads `data/ledger.csv` inside your finance project - the file

@@ -22,7 +22,7 @@ import json
 import os
 import re
 
-from . import columns, io_xlsx, schema
+from . import columns, io_xlsx, refunds, schema
 
 # --------------------------------------------------------------- signals
 
@@ -125,7 +125,19 @@ def _dest_text(r: dict) -> str:
     return _norm(f"{r.get('description', '')} {r.get('detail', '')} {r.get('merchant_country', '')}")
 
 
-def _dominant_foreign_currency(rows: list[dict], d1: "_dt.date", d2: "_dt.date", date_field: str, scope: str) -> str | None:
+def _refunded_expense_ids(rows: list[dict]) -> set[str]:
+    """Ids of credit-card rows that form one leg of a validly bound
+    refund<->expense pair (see `refunds.annihilate_bound_pairs`) - a charge
+    that was fully waived/refunded (e.g. a card fee immediately reversed) is
+    not a real net expense, so "expenses"-scoped topics must not count it.
+    Includes both legs (the refund side too), so the same set is safe to use
+    for an "income" scope check in the future without re-deriving it."""
+    _, dropped, _stats = refunds.annihilate_bound_pairs(rows)
+    return {r["id"] for r in dropped if r.get("id")}
+
+
+def _dominant_foreign_currency(rows: list[dict], d1: "_dt.date", d2: "_dt.date", date_field: str, scope: str,
+                                refunded_ids: set[str] | None = None) -> str | None:
     """Most common non-ILS currency_orig among credit-card rows during the
     trip's main window - used as "the trip's currency" to catch pre-trip
     charges in the same currency regardless of their category."""
@@ -133,7 +145,7 @@ def _dominant_foreign_currency(rows: list[dict], d1: "_dt.date", d2: "_dt.date",
 
     counts: collections.Counter = collections.Counter()
     for r in rows:
-        if not _scope_ok(r, scope):
+        if not _scope_ok(r, scope, refunded_ids):
             continue
         d = _date(r.get(date_field))
         if d is None or not (d1 <= d <= d2):
@@ -195,7 +207,7 @@ def _date(value) -> _dt.date | None:
 _NON_EXPENSE_CATEGORIES = set(columns.INTERNAL_TRANSFER_CATEGORIES) | {columns.CC_CHARGE_CATEGORY}
 
 
-def _scope_ok(r: dict, scope: str) -> bool:
+def _scope_ok(r: dict, scope: str, refunded_ids: set[str] | None = None) -> bool:
     if scope == "all" or not scope:
         return True
     amt = r.get("amount_ils")
@@ -204,6 +216,8 @@ def _scope_ok(r: dict, scope: str) -> bool:
     if scope == "income":
         return amt > 0
     if scope == "expenses":
+        if refunded_ids and r.get("id") in refunded_ids:
+            return False  # fully waived/refunded - not a real net expense
         return amt < 0 and (r.get("category") or "") not in _NON_EXPENSE_CATEGORIES
     return True
 
@@ -251,11 +265,12 @@ def recipe_trip_abroad(rows: list[dict], params: dict, signals: dict):
     cash_start = d1 - _dt.timedelta(days=1)
     tail_end = d2 + _dt.timedelta(days=tail)
     extended_categories = set(signals.get("extended_lookback_categories", []))
-    dominant_currency = _dominant_foreign_currency(rows, d1, d2, date_field, scope)
+    refunded_ids = _refunded_expense_ids(rows)
+    dominant_currency = _dominant_foreign_currency(rows, d1, d2, date_field, scope, refunded_ids)
 
     out: dict = {}
     for r in rows:
-        if not _scope_ok(r, scope):
+        if not _scope_ok(r, scope, refunded_ids):
             continue
         
         # Skip transactions matching "never trip" keywords (e.g., Netflix, Patreon)
@@ -350,10 +365,11 @@ def recipe_trip_local(rows: list[dict], params: dict, signals: dict):
     pre_start = d1 - _dt.timedelta(days=lookback)
     extended_start = d1 - _dt.timedelta(days=max(extended_lookback, lookback))
     extended_categories = set(signals.get("extended_lookback_categories", []))
+    refunded_ids = _refunded_expense_ids(rows)
 
     out: dict = {}
     for r in rows:
-        if not _scope_ok(r, scope):
+        if not _scope_ok(r, scope, refunded_ids):
             continue
 
         # Skip transactions matching "never trip" keywords
@@ -421,9 +437,10 @@ def recipe_custom(rows: list[dict], params: dict, signals: dict):
                 flags_wanted, source_types, min_amount is not None, max_amount is not None]):
         raise ValueError("custom needs at least one filter (date1/date2, category, keyword, flag, source-type, min/max-amount)")
 
+    refunded_ids = _refunded_expense_ids(rows)
     out: dict = {}
     for r in rows:
-        if not _scope_ok(r, scope):
+        if not _scope_ok(r, scope, refunded_ids):
             continue
         if d1 or d2:
             d = _date(r.get(date_field))
@@ -482,8 +499,9 @@ def recipe_exclude_topics(rows: list[dict], params: dict, signals: dict, topics_
             )
 
     out: dict = {}
+    refunded_ids = _refunded_expense_ids(rows)
     for r in rows:
-        if not _scope_ok(r, scope):
+        if not _scope_ok(r, scope, refunded_ids):
             continue
         if d1 or d2:
             d = _date(r.get(date_field))

@@ -39,13 +39,22 @@ analysis plan first; generate the workbook only after the user approves it.
 | `finance_core/data/topic_signals.yaml` | Default topic-detection signals | finance-topic copies it to `<project>/topic_signals.yaml` on first use. |
 | `finance-unify/merchant_categories.csv` | Shared merchant-to-category mappings | Used across projects; project corrections can be promoted here. |
 
-## Future Topic Note
+## Guidance: Including ILS Virtual-Card Charges in Abroad-Trip Topics
 
-Temporary guidance for any finance project: when extracting an abroad-trip
-topic, include `PASSPORTCARD FINANCIAL NETANYA       IL` transactions belonging
-to that trip. These virtual-debit-card charges are in ILS, so the current
-`trip_abroad` recipe does not automatically include them as foreign-currency
-card charges. Apply this guidance until the full data for the upcoming sample
-trip is available and used to update the recipe; then replace or remove this
-note in favor of the generalized recipe behavior. The category mapping is
-maintained in `finance-unify/merchant_categories.csv`.
+The `trip_abroad` recipe is designed to detect foreign-currency charges (the 
+primary indicator of spending abroad). Virtual debit cards like `PASSPORTCARD 
+FINANCIAL NETANYA` can be used abroad but charge in ILS if linked to an Israeli 
+account - so they are invisible to the foreign-currency pattern.
+
+If you use a PassportCard abroad and want to include those charges in an 
+abroad-trip topic:
+
+1. **Manual include by ID:** When reviewing ambiguous rows in the topic's 
+   `.review.csv`, explicitly include PassportCard transactions belonging to 
+   that trip by id.
+2. **Or create a custom filter:** Use `recipe_custom` with a category filter 
+   (`--category "עושים קניות - שונות"`) combined with a date range, then manually 
+   exclude unrelated ones.
+
+The category mapping is maintained in 
+`finance-unify/merchant_categories.csv`.

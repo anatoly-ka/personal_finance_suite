@@ -12,6 +12,7 @@ output; openpyxl/pyyaml are optional.
 from __future__ import annotations
 
 import argparse
+import datetime
 import glob
 import os
 import re
@@ -285,13 +286,15 @@ _ID_RE = re.compile(r"^(?P<prefix>.+)-(?P<seq>\d+)$")
 
 def _fingerprint(rec) -> tuple:
     """Content fingerprint that identifies a transaction across exports:
-    source sheet + date + description + original-currency sum.
+    source sheet + date + description + original-currency sum + installment number.
 
     Row ids are per-sheet sequence numbers, unique only within one export
     file, so they cannot match rows across exports with different coverage
     windows. The sum is compared in the ORIGINAL currency (falling back to
     ILS when absent) so the fingerprint does not depend on whether an FX rate
-    was available at build time."""
+    was available at build time. Installment number is included to distinguish
+    different payment instances of the same multi-part purchase (e.g. separate
+    billing cycles of a 12-month installment plan)."""
     desc = " ".join(str(rec.get("description") or "").split()).lower()
     cur = str(rec.get("currency_orig") or "").strip().upper()
     amt = rec.get("amount_orig")
@@ -301,13 +304,280 @@ def _fingerprint(rec) -> tuple:
         amt = round(float(amt), 2)
     except (TypeError, ValueError):
         amt = None
+    inst_no = str(rec.get("installment_no", "")).strip()
     return (
         str(rec.get("source_name") or "").strip(),
         str(rec.get("date_iso") or "").strip(),
         desc,
         cur,
         amt,
+        inst_no,
     )
+
+
+def _fingerprint_partial(rec) -> tuple:
+    """Partial fingerprint for matching finalized vs. provisional versions of the same transaction.
+    Excludes amount but includes installment_no to distinguish different payment instances.
+    Used to match a future flagged transaction with its finalized version from a later export."""
+    desc = " ".join(str(rec.get("description") or "").split()).lower()
+    cur = str(rec.get("currency_orig") or "").strip().upper()
+    inst_no = str(rec.get("installment_no", "")).strip()
+    return (
+        str(rec.get("source_name") or "").strip(),
+        str(rec.get("date_iso") or "").strip(),
+        desc,
+        cur,
+        inst_no,
+    )
+
+
+def _extract_export_date_from_filename(source_path: str) -> str:
+    """Fallback: extract export date from filename like
+    'MyFinandaExport 2026.11.18.xlsx' -> '2026-11-18'. Only used when the
+    workbook's own summary sheets (see `_compute_export_date_from_summary`)
+    don't yield a usable date, since filenames can be renamed or off by a day
+    relative to the actual snapshot timestamp."""
+    basename = os.path.basename(source_path)
+    m = re.search(r'(\d{4})\.(\d{2})\.(\d{2})', basename)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return ""
+
+
+_ACCOUNTS_SUMMARY_SHEET = "סיכום חשבונות עוש שיקליים"
+_CARDS_SUMMARY_SHEET = "סיכום כרטיסי אשראי"
+_UPDATE_COL = "מועד עדכון"
+_NEXT_CHARGE_ILS_COL = 'סכום החיוב הבא בש"ח'
+
+
+def _compute_export_date_from_summary(sheets) -> str:
+    """Determine the true export/snapshot date from the workbook's own summary
+    sheets, rather than the (renameable, sometimes off-by-a-day) source
+    filename.
+
+    export_date = earliest `מועד עדכון` (per-account update timestamp) among:
+      - every row of the checking/savings account summary sheet
+        (`סיכום חשבונות עוש שיקליים`), and
+      - rows of the credit-card summary sheet (`סיכום כרטיסי אשראי`) whose
+        `סכום החיוב הבא בש"ח` (next ILS charge amount) is non-zero.
+        Cards with no upcoming charge are typically closed/inactive and carry
+        a stale `מועד עדכון` that can be years old, which would otherwise
+        corrupt the minimum.
+
+    Returns an ISO date string, or "" if neither summary sheet is present or
+    no row yields a usable timestamp (caller should fall back to the
+    filename)."""
+    by_name = {s.name: s for s in sheets}
+    serials: list[float] = []
+
+    accounts = by_name.get(_ACCOUNTS_SUMMARY_SHEET)
+    if accounts:
+        for row in accounts.rows:
+            v = _num(row.get(_UPDATE_COL))
+            if v is not None:
+                serials.append(v)
+
+    cards = by_name.get(_CARDS_SUMMARY_SHEET)
+    if cards:
+        for row in cards.rows:
+            amt = _num(row.get(_NEXT_CHARGE_ILS_COL))
+            if not amt:  # None or 0.0: no upcoming charge -> stale row, skip
+                continue
+            v = _num(row.get(_UPDATE_COL))
+            if v is not None:
+                serials.append(v)
+
+    if not serials:
+        return ""
+    return io_xlsx.serial_to_iso(min(serials))
+
+
+def determine_export_date(sheets, source_path: str) -> str:
+    """Resolve the export/snapshot date: prefer the workbook's own summary-sheet
+    timestamps (see `_compute_export_date_from_summary`); fall back to parsing
+    the source filename when the summary sheets are absent or unusable."""
+    date = _compute_export_date_from_summary(sheets)
+    if date:
+        return date
+    return _extract_export_date_from_filename(source_path)
+
+
+def _replace_future_with_finalized(old_row: dict, new_row: dict) -> dict:
+    """Replace a future-flagged row with its finalized version while preserving corrections.
+    
+    Keeps stable ID and manual corrections from old row; adopts all refreshable fields
+    from the new export (including corrected amounts)."""
+    # Preserve identity and manual corrections from old row
+    old_id = old_row.get("id", "")
+    old_reference = old_row.get("reference", "")
+    old_category = (old_row.get("category") or "").strip()
+    old_explanation = old_row.get("explanation", "")
+    old_link_group = old_row.get("link_group", "")
+    
+    # Start with new row data (more complete/accurate)
+    merged = dict(new_row)
+    
+    # Restore stable identity and manual corrections
+    merged["id"] = old_id
+    if old_reference:
+        merged["reference"] = old_reference
+    if old_category and old_category != columns.UNCLASSIFIED:
+        merged["category"] = old_category
+    if old_explanation:
+        merged["explanation"] = old_explanation
+    if old_link_group:
+        merged["link_group"] = old_link_group
+    
+    # Remove the "future" flag
+    merged["flags"] = [f for f in (merged.get("flags") or []) if f != "future"]
+    
+    return merged
+
+
+def _replace_future_rows(merged: list[dict], appended_rows: list[dict], export_date: str,
+                          buffer_days: int = 3, maturity_days: int = 60) -> dict:
+    """Find and replace future-flagged rows with their finalized versions from the new export.
+
+    For each row with "future" flag and billing_date now in past (beyond buffer),
+    search for a partial-fingerprint match in `appended_rows` and, if found and
+    unambiguous, replace the old row while keeping its ID.
+
+    Candidates are drawn ONLY from `appended_rows` (the fresh rows that did NOT
+    match any stored row via the full content fingerprint in this merge) -
+    never from the complete fresh export. A row that DID match via the full
+    fingerprint already updated the stored row in place (same amount, nothing
+    to finalize) and must not ALSO be claimed here, which would silently
+    create a duplicate row (same transaction kept under both its original new
+    id and the old flagged id).
+
+    A row with no candidate match in THIS export is not necessarily final: the
+    real transaction may simply not have posted yet (banks/card issuers can
+    take more than one export cycle to report a cumulative charge, sometimes
+    even changing their own reference number in the process - see the
+    B1923211-001262 case). So an unmatched row keeps its "future" flag and is
+    retried again on every subsequent incremental update, and is only given up
+    on (flag removed, provisional value kept as final) once billing_date is
+    more than `maturity_days` (~2 months by default) in the past - well beyond
+    the `buffer_days` trigger point for starting to look for a match.
+
+    Returns a stats dict; stats["consumed_ids"] holds `id(row)` of every
+    `appended_rows` entry that was folded into a replaced row, which the
+    caller must remove from `merged` and `appended_rows` to avoid duplicates."""
+
+    stats = {
+        "future_matched": 0,
+        "future_unmatched": 0,
+        "future_ambiguous": 0,
+        "future_pending": 0,
+        "future_replaced": [],
+        "consumed_ids": set(),
+    }
+    
+    if not export_date:
+        return stats
+    
+    # Parse export date
+    try:
+        exp_date_obj = datetime.datetime.strptime(export_date, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return stats
+    
+    # Build lookup of candidate (genuinely new) records by partial fingerprint
+    current_by_partial_fp: dict[tuple, list[dict]] = defaultdict(list)
+    for rec in appended_rows:
+        pfp = _fingerprint_partial(rec)
+        current_by_partial_fp[pfp].append(rec)
+    
+    # Find rows to replace: has "future" flag and billing_date is now past threshold
+    rows_to_replace: list[tuple[int, dict]] = []
+    for idx, row in enumerate(merged):
+        flags = row.get("flags") or []
+        if "future" not in flags:
+            continue
+        
+        billing_date_str = row.get("billing_date", "")
+        if not billing_date_str:
+            continue
+        
+        try:
+            billing_date_obj = datetime.datetime.strptime(billing_date_str, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        
+        # Check if billing date has passed the threshold (is now in past + buffer)
+        days_past = (exp_date_obj - billing_date_obj).days
+        if days_past <= buffer_days:
+            # Still in the buffer zone, keep the future flag
+            continue
+        
+        rows_to_replace.append((idx, row, days_past))
+    
+    # For each future row that's now past threshold, try to match and replace
+    for idx, old_row, days_past in rows_to_replace:
+        pfp = _fingerprint_partial(old_row)
+        matches = current_by_partial_fp.get(pfp, [])
+        
+        if not matches:
+            if days_past > maturity_days:
+                # No finalized version ever arrived within the maturity window
+                # - give up and unflag, keeping the provisional value as final.
+                old_row["flags"] = [f for f in (old_row.get("flags") or []) if f != "future"]
+                stats["future_unmatched"] += 1
+            else:
+                # Still within the maturity window: keep the "future" flag so
+                # this row is retried again on the next incremental update.
+                stats["future_pending"] += 1
+        elif len(matches) == 1:
+            # Unambiguous match found - replace with finalized version
+            new_row = matches[0]
+            merged_row = _replace_future_with_finalized(old_row, new_row)
+            merged[idx] = merged_row
+            stats["future_matched"] += 1
+            stats["future_replaced"].append(old_row.get("id", ""))
+            # The matched candidate must not ALSO survive as its own separate
+            # (duplicate) row: the caller removes it from merged/appended_rows.
+            stats["consumed_ids"].add(id(new_row))
+        else:
+            # Ambiguous match - flag for review, keep original
+            schema.add_flag(old_row, "ambiguous_match")
+            old_row["explanation"] = f"Multiple finalized versions found; kept provisional. Manual review recommended."
+            stats["future_ambiguous"] += 1
+    
+    return stats
+
+
+def _flag_future_transactions(records: list[dict], export_date: str, buffer_days: int = 3) -> int:
+    """Flag transactions with billing_date far in future (beyond buffer).
+    
+    These are preliminary/provisional and may change between exports.
+    Returns count of rows flagged."""
+    
+    if not export_date:
+        return 0
+    
+    try:
+        exp_date_obj = datetime.datetime.strptime(export_date, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return 0
+    
+    flagged_count = 0
+    for rec in records:
+        billing_date_str = rec.get("billing_date", "")
+        if not billing_date_str:
+            continue
+        
+        try:
+            billing_date_obj = datetime.datetime.strptime(billing_date_str, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        
+        # Flag if billing date is more than buffer_days in the future
+        days_ahead = (billing_date_obj - exp_date_obj).days
+        if days_ahead > buffer_days:
+            schema.add_flag(rec, "future")
+            flagged_count += 1
+    
+    return flagged_count
 
 
 def _next_id(rid: str, used_ids: set, prefix_max: dict) -> str:
@@ -324,7 +594,8 @@ def _next_id(rid: str, used_ids: set, prefix_max: dict) -> str:
     return new_id
 
 
-def merge_incremental(current: list[dict], existing: list[dict]):
+def merge_incremental(current: list[dict], existing: list[dict], export_date: str = "",
+                       buffer_days: int = 3, maturity_days: int = 60):
     """Merge freshly built records into an existing ledger.
 
     Matching is by content fingerprint (see `_fingerprint`) with multiset
@@ -339,6 +610,16 @@ def merge_incremental(current: list[dict], existing: list[dict]):
     such a row's export id collides with any known id it is reassigned a fresh
     unique sequence number on the same prefix (ids are cosmetic once rows are
     matched by content).
+
+    If export_date is provided, future transactions (billing_date > export_date + buffer_days)
+    are flagged as provisional. On every subsequent incremental update, still-flagged rows
+    whose billing_date has passed the buffer are matched via partial fingerprint (excluding
+    amount) against the fresh export; a match replaces the provisional row with the finalized
+    one while preserving its ID and manual corrections. A row with no match keeps retrying on
+    each later update (the finalized version may simply not have posted yet) and is only given
+    up on - flag removed, provisional value kept as final - once billing_date is more than
+    `maturity_days` (~2 months by default) in the past, so the flag cannot accumulate
+    indefinitely: every row is guaranteed to resolve (matched or given up) within that window.
 
     Returns (merged_records, stats_dict)."""
     pending: dict[tuple, list[dict]] = defaultdict(list)
@@ -393,6 +674,44 @@ def merge_incremental(current: list[dict], existing: list[dict]):
         merged.append(rec)
         stats["appended_rows"].append(rec)
         stats["appended"] += 1
+    
+    # Flag new transactions with billing_date far in future (beyond buffer).
+    # These may change between exports, so we track them separately for later matching.
+    if export_date:
+        future_flagged = _flag_future_transactions(stats["appended_rows"], export_date, buffer_days)
+        if future_flagged:
+            stats["future_flagged"] = future_flagged
+    
+    # For existing ledger, check if any future-flagged rows now have finalized versions
+    # among this export's genuinely new rows, and replace them while preserving IDs and
+    # manual corrections. Candidates are scoped to `appended_rows` (not the full fresh
+    # export) - see `_replace_future_rows` docstring for why that matters.
+    if export_date:
+        future_stats = _replace_future_rows(merged, stats["appended_rows"], export_date, buffer_days, maturity_days)
+        stats["future_matched"] = future_stats["future_matched"]
+        stats["future_unmatched"] = future_stats["future_unmatched"]
+        stats["future_ambiguous"] = future_stats["future_ambiguous"]
+        stats["future_pending"] = future_stats["future_pending"]
+        stats["future_replaced"] = future_stats["future_replaced"]
+        # A candidate folded into a replaced row must not also survive as its
+        # own separate (duplicate) row: drop it from both merged and
+        # appended_rows, matched by object identity.
+        consumed_ids = future_stats["consumed_ids"]
+        if consumed_ids:
+            merged = [r for r in merged if id(r) not in consumed_ids]
+            stats["appended_rows"] = [r for r in stats["appended_rows"] if id(r) not in consumed_ids]
+        
+        # Also retroactively flag any existing merged rows with future dates
+        # (these may have been imported before future flagging was implemented)
+        already_flagged_count = sum(1 for r in merged if 'future' in r.get('flags', []))
+        retrospective_flagged = _flag_future_transactions(merged, export_date, buffer_days)
+        newly_flagged = retrospective_flagged - already_flagged_count
+        if newly_flagged > 0:
+            if "future_flagged_retrospective" not in stats:
+                stats["future_flagged_retrospective"] = newly_flagged
+            else:
+                stats["future_flagged_retrospective"] += newly_flagged
+    
     return merged, stats
 
 
@@ -461,12 +780,29 @@ def main() -> int:
     if args.incremental:
         existing = load_existing(out_path)
         if existing:
-            records, inc_stats = merge_incremental(records, existing)
+            future_buffer_days = 3
+            future_maturity_days = 60  # ~2 months: guarantees every "future" flag resolves by then
+            export_date = determine_export_date(sheets, source)
+            print(f"[info] export date (from workbook summary sheets, falling back to filename): {export_date or '(none found)'}")
+            records, inc_stats = merge_incremental(records, existing, export_date=export_date,
+                                                    buffer_days=future_buffer_days, maturity_days=future_maturity_days)
             print(f"[info] incremental: {len(existing)} existing rows; "
                   f"{inc_stats['kept']} matched (kept as-is), "
                   f"{inc_stats['appended']} new appended "
                   f"[{inc_stats['renumbered']} id reassign(s), "
                   f"{inc_stats['category_rescued']} category refresh(es)].")
+            if inc_stats.get("future_flagged", 0) > 0:
+                print(f"[info] incremental: {inc_stats['future_flagged']} new row(s) flagged as future/provisional "
+                      f"(billing date > 3 days after export; will be replaced when finalized).")
+            if inc_stats.get("future_flagged_retrospective", 0) > 0:
+                print(f"[info] incremental: {inc_stats['future_flagged_retrospective']} existing row(s) retroactively flagged as future "
+                      f"(imported before future-flagging was implemented).")
+            if (inc_stats.get("future_matched", 0) > 0 or inc_stats.get("future_unmatched", 0) > 0
+                    or inc_stats.get("future_ambiguous", 0) > 0 or inc_stats.get("future_pending", 0) > 0):
+                print(f"[info] incremental: {inc_stats.get('future_matched', 0)} future row(s) replaced with finalized version(s), "
+                      f"{inc_stats.get('future_pending', 0)} still pending (will retry on a later update), "
+                      f"{inc_stats.get('future_unmatched', 0)} gave up after {future_maturity_days} days past billing date (kept as-is), "
+                      f"{inc_stats.get('future_ambiguous', 0)} ambiguous (review recommended).")
             if inc_stats["fields_refreshed"]:
                 print(f"[info] incremental: {inc_stats['refreshed_rows']} stored row(s) "
                       f"adopted {inc_stats['fields_refreshed']} corrected value(s) from the "

@@ -267,26 +267,102 @@ def reconcile_incremental(records: list[dict], appended: list[dict]) -> tuple[li
     return kept, stats
 
 
+def _desc_norm(text) -> str:
+    return " ".join(str(text or "").split()).strip().lower()
+
+
+def _desc_equivalent(a, b) -> bool:
+    """True when two descriptions are the same transaction's text under the
+    known export quirks: identical once whitespace/case-normalized, or one is
+    the other with every character reversed (a bidi-rendering glitch some
+    export refreshes introduce for Latin-script merchant names in an
+    RTL-locale report - see `_merge_duplicate_cc_rows`)."""
+    na, nb = _desc_norm(a), _desc_norm(b)
+    if not na or not nb:
+        return False
+    return na == nb or na == nb[::-1]
+
+
+def _id_seq(rid: str) -> int:
+    m = re.search(r"-(\d+)$", rid or "")
+    return int(m.group(1)) if m else 0
+
+
+def _installment_conflict(a, b) -> bool:
+    """True when both rows carry a non-empty installment number and they
+    differ - e.g. installment 2/12 and 3/12 of the same purchase share the
+    same original date_iso, description, and (for most plans) amount, so they
+    would otherwise look like an exact duplicate to every pattern below. A
+    differing installment number is proof they are NOT the same transaction,
+    regardless of any other equivalence signal."""
+    ia = str(a.get("installment_no") or "").strip()
+    ib = str(b.get("installment_no") or "").strip()
+    return bool(ia) and bool(ib) and ia != ib
+
+
+def _already_bound(a, b) -> bool:
+    """True when either row already carries a non-empty `reference`. Credit-
+    card sheets have no native reference column in the raw export (unlike bank
+    statements) - a CC row's `reference` is only ever set by refund-binding or
+    a manual correction, pointing it at one SPECIFIC counterpart id. Merchants
+    like app-store/game refunders routinely issue several same-day, same-
+    amount, same-description refunds for entirely different original
+    purchases, so content equivalence alone is not proof of duplication once
+    either side has already been resolved to a specific counterpart - merging
+    would silently discard that resolution (or wrongly fold two distinct
+    transactions together)."""
+    return bool((a.get("reference") or "").strip()) or bool((b.get("reference") or "").strip())
+
+
 def _merge_duplicate_cc_rows(records: list[dict], dropped: set[int], stats: dict) -> None:
     """Fold a still-provisional credit-card row into its settled sibling when
     the two are clearly the same physical transaction stored twice. This
     happens when a merchant's reported text changes between export snapshots
-    (e.g. a truncated name becomes the full one, or a branch/country suffix is
-    added once the charge settles) - the incremental content fingerprint
+    (e.g. a truncated name becomes the full one, a branch/country suffix is
+    added once the charge settles, or - see below - the text comes back with
+    every character reversed) - the incremental content fingerprint
     (source + date + description + amount) then no longer matches, so the
     newer snapshot's row is appended instead of updating the stored one.
 
-    Only folds a bucket (same card, date_iso, ILS amount) that is unambiguous:
-    exactly one row still sitting at its provisional billing date
-    (`billing_date == date_iso`) with no cumulative-charge link, and exactly
-    one other row in that same bucket that already carries a `link_group`
-    (confirmed settled). The provisional row's id is kept (first-seen wins,
-    per the incremental-merge id-stability rule); the settled row's billing
-    date, link, and any blank fields it fills in are adopted, and the settled
-    row is dropped. The settled row's description replaces the provisional
-    one unless it is simply the provisional text reversed (a bidi-rendering
-    artifact some exports introduce, which is strictly less readable, not a
-    correction)."""
+    A bucket is (same card, date_iso, ILS amount). Within a bucket, three
+    unambiguous patterns are folded:
+      1. Classic provisional/settled pair: exactly one row still sitting at
+         its provisional billing date (`billing_date == date_iso`) with no
+         cumulative-charge link, and exactly one other row that already
+         carries a `link_group` (confirmed settled). Descriptions need not
+         match here - the structural signal (one side moved on to real
+         settlement, the other never did) is enough on its own.
+      2. One settled row (has `link_group`) plus exactly one other, unlinked
+         row whose billing date is ALSO already finalized (not the classic
+         provisional shape) - accepted only when the two descriptions are
+         text-equivalent (see `_desc_equivalent`), since the structural signal
+         alone isn't enough once both sides look settled.
+      3. Neither row is linked yet, but exactly two rows share the bucket and
+         are text-equivalent - accepted on description alone; the first-seen
+         (lower id sequence number) row is kept.
+
+    In all three cases the kept row's id is preserved (first-seen wins, per
+    the incremental-merge id-stability rule - pattern 1's "orphan" is
+    definitionally first-seen; patterns 2 and 3 both keep whichever row has
+    the lower id sequence number, since "linked" does not imply "earlier" -
+    the settled side may well be the later-arriving, possibly-reversed copy).
+    A pair is never folded if both sides carry a non-empty, DIFFERING
+    installment number (see `_installment_conflict`): installment plans repeat
+    the same original date_iso, description, and (for most plans) amount every
+    cycle, so two different installments of the same purchase would otherwise
+    look exactly like a duplicate pair to patterns 2 and 3 (pattern 1 is
+    naturally immune, since an installment's billing_date is never its own
+    date_iso). Nor is a pair ever folded if either side already carries a
+    non-empty `reference` (see `_already_bound`): that means it was already
+    explicitly resolved - typically by refund-binding - to a SPECIFIC
+    counterpart, and same-day/same-amount/same-description refund rows for
+    genuinely different original purchases are common enough (e.g. repeat
+    app-store refunds) that content equivalence alone must yield to an
+    existing explicit resolution. The dropped row's billing date, link, and
+    any blank fields it fills in are adopted onto the kept row; its
+    description replaces the kept one's only if the kept one's text isn't
+    simply the dropped text reversed (a strictly less readable bidi artifact,
+    not a correction)."""
     buckets: dict[tuple, list[int]] = defaultdict(list)
     for i, r in enumerate(records):
         if i in dropped or r.get("source_type") != "credit-card":
@@ -304,15 +380,38 @@ def _merge_duplicate_cc_rows(records: list[dict], dropped: set[int], stats: dict
                    if records[i].get("billing_date") == records[i].get("date_iso")
                    and not records[i].get("link_group")]
         settled = [i for i in idxs if records[i].get("link_group")]
-        if len(orphans) != 1 or len(settled) != 1:
-            continue  # only fold unambiguous 1:1 pairs
-        oi, si = orphans[0], settled[0]
+        unlinked = [i for i in idxs if not records[i].get("link_group")]
+
+        oi = si = None
+        if len(orphans) == 1 and len(settled) == 1:
+            oi, si = orphans[0], settled[0]
+        elif len(settled) == 1 and len(unlinked) == 1 and unlinked[0] != settled[0]:
+            cand, other = unlinked[0], settled[0]
+            if _desc_equivalent(records[cand].get("description"), records[other].get("description")):
+                # Kept row = first-seen (lower id sequence), same convention as
+                # pattern 3 - "linked" does not imply "earlier": the settled
+                # side may well be the later-arriving, possibly-reversed copy.
+                oi, si = (cand, other) if _id_seq(records[cand]["id"]) <= _id_seq(records[other]["id"]) else (other, cand)
+        elif len(settled) == 0 and len(unlinked) == 2:
+            a, b = unlinked
+            if _desc_equivalent(records[a].get("description"), records[b].get("description")):
+                oi, si = (a, b) if _id_seq(records[a]["id"]) <= _id_seq(records[b]["id"]) else (b, a)
+        if oi is None:
+            continue  # ambiguous or not an unambiguous duplicate - leave both
+        if _installment_conflict(records[oi], records[si]):
+            continue  # different installments of the same plan, not a duplicate
+        if _already_bound(records[oi], records[si]):
+            continue  # one side already explicitly resolved to a specific counterpart
+
         orphan, settle = records[oi], records[si]
         if (orphan.get("currency_orig") or "ILS") != (settle.get("currency_orig") or "ILS"):
             continue
 
-        orphan["billing_date"] = settle.get("billing_date") or orphan["billing_date"]
-        orphan["link_group"] = settle.get("link_group")
+        if orphan.get("billing_date") == orphan.get("date_iso") and settle.get("billing_date") not in (
+                None, "", settle.get("date_iso")):
+            orphan["billing_date"] = settle["billing_date"]
+        if settle.get("link_group"):
+            orphan["link_group"] = settle["link_group"]
         for field in ("merchant_country", "time", "detail"):
             if not orphan.get(field) and settle.get(field):
                 orphan[field] = settle[field]
@@ -322,7 +421,13 @@ def _merge_duplicate_cc_rows(records: list[dict], dropped: set[int], stats: dict
         if (not orphan.get("category") or orphan["category"] == columns.UNCLASSIFIED) and settle.get("category"):
             orphan["category"] = settle["category"]
         schema.add_flag(orphan, "assumed_duplicate_merge")
-        note = f"Merged duplicate {settle['id']} (same card/date/amount; provisional vs settled export)."
+        # Deliberately no id reference here: raw ids are assigned by row
+        # POSITION within a single export sheet, not by stable transaction
+        # identity, so a dropped row's id can be silently reused by an
+        # entirely unrelated transaction in a later export once it is no
+        # longer "in use" - embedding it would risk a misleading reference
+        # that coincidentally resolves to the wrong row down the line.
+        note = "Merged a duplicate entry (same card/date/amount; provisional vs settled export)."
         orphan["explanation"] = f"{orphan['explanation']} {note}".strip() if orphan.get("explanation") else note
         dropped.add(si)
         stats["cc_duplicate_merged"] += 1
